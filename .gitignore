@@ -1,0 +1,42 @@
+# ── Sensitive / Personal Data ──────────────────────────────────────────────────
+config.json                  # contains API keys — use config.example.json instead
+memory/chat_history.json     # personal chat history
+memory/user_profile.json     # personal user facts
+memory/commands.json         # personal command log
+memory/preferences.json      # personal preferences
+*.log                        # log files
+dodo_voice.log
+
+# ── Python ─────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# ── Virtual Environments ───────────────────────────────────────────────────────
+venv/
+env/
+.venv/
+.env/
+
+# ── OS / Editor ────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.suo
+*.user
+
+# ── Whisper model cache (large, auto-downloaded on first run) ──────────────────
+*.pt
+*.bin
+
+# ── Dataset (may contain personal data) ───────────────────────────────────────
+dataset/

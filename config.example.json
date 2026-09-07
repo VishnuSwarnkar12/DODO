@@ -1,0 +1,39 @@
+{
+    "wake_word": "dodo",
+    "hotkey": "ctrl+alt+d",
+    "voice": {
+        "rate": 185,
+        "volume": 1.0,
+        "gender": "female"
+    },
+    "startup_greeting": true,
+    "online_mode": true,
+    "mic_enabled": true,
+    "autonomy_level": 2,
+    "user_name": "YourName",
+    "window": {
+        "width": 420,
+        "height": 700,
+        "always_on_top": false,
+        "start_minimized": false
+    },
+    "theme": {
+        "accent": "#4f9fff",
+        "bg_primary": "#0d0d1a",
+        "bg_secondary": "#1a1a2e"
+    },
+    "stt_engine": "whisper",
+    "whisper_model": "base",
+    "groq_api_key": "YOUR_GROQ_API_KEY_HERE",
+    "openai_base_url": "https://api.groq.com/openai/v1",
+    "groq_model": "openai/gpt-oss-120b",
+    "openai_vision_model": "meta-llama/llama-4-scout-17b-16e-instruct",
+    "tts_engine": "edge",
+    "tts_voice": "en-IN-NeerjaNeural",
+    "mic_energy_threshold": 0.004,
+    "language": "en",
+    "debug_mode": false,
+    "whisper_wakeword_model": "tiny",
+    "gmail_address": "",
+    "gmail_app_password": ""
+}
