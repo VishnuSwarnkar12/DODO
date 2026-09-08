@@ -8,20 +8,42 @@ import os
 from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CONFIG_PATH        = os.path.join(BASE_DIR, "config.json")
-COMMANDS_PATH      = os.path.join(BASE_DIR, "memory", "commands.json")
-PREFERENCES_PATH   = os.path.join(BASE_DIR, "memory", "preferences.json")
-FACTS_PATH         = os.path.join(BASE_DIR, "memory", "user_profile.json")
-CHAT_HISTORY_PATH  = os.path.join(BASE_DIR, "memory", "chat_history.json")
+CONFIG_PATH         = os.path.join(BASE_DIR, "config.json")
+EXAMPLE_CONFIG_PATH = os.path.join(BASE_DIR, "config.example.json")
+COMMANDS_PATH       = os.path.join(BASE_DIR, "memory", "commands.json")
+PREFERENCES_PATH    = os.path.join(BASE_DIR, "memory", "preferences.json")
+FACTS_PATH          = os.path.join(BASE_DIR, "memory", "user_profile.json")
+CHAT_HISTORY_PATH   = os.path.join(BASE_DIR, "memory", "chat_history.json")
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
 def load_config() -> dict:
+    """
+    Load config.json. If missing, auto-copy from config.example.json.
+    Never silently returns {} — always tells the user what's wrong.
+    """
+    if not os.path.exists(CONFIG_PATH):
+        if os.path.exists(EXAMPLE_CONFIG_PATH):
+            import shutil
+            shutil.copy(EXAMPLE_CONFIG_PATH, CONFIG_PATH)
+            print(
+                "\n[DODO] config.json not found — created from template.\n"
+                "       Open config.json and set your name + Groq API key.\n"
+                "       Get a free key at: https://console.groq.com\n"
+            )
+        else:
+            print(
+                "\n[DODO] ERROR: config.json missing and no config.example.json found.\n"
+                "       Please re-clone the repository.\n"
+            )
+        return {}
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except json.JSONDecodeError as e:
+        print(f"\n[DODO] ERROR: config.json is corrupted: {e}\n"
+              f"       Fix or delete it and run install.py again.\n")
         return {}
 
 def save_config(data: dict):
@@ -109,11 +131,14 @@ def save_fact(fact: str):
     facts = load_facts()
     fact_lower = fact.lower()
 
-    # Extract significant keywords from the new fact (skip common words)
+    # Build stopwords dynamically — include the user's own name
+    _user = load_config().get("user_name", "").lower()
     STOPWORDS = {"the","a","an","is","are","was","were","i","my","me","not","do",
                  "does","did","he","she","it","its","in","on","at","to","of","and",
                  "or","but","for","with","that","this","have","has","had","will","can",
-                 "just","like","when","what","you","your","dodo","vishnu"}
+                 "just","like","when","what","you","your","dodo"}
+    if _user:
+        STOPWORDS.add(_user)
     new_keywords = {w for w in fact_lower.split() if len(w) > 3 and w not in STOPWORDS}
 
     updated = False

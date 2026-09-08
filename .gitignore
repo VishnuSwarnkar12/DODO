@@ -1,10 +1,12 @@
 # ── Sensitive / Personal Data ──────────────────────────────────────────────────
-config.json                  # contains API keys — use config.example.json instead
-memory/chat_history.json     # personal chat history
-memory/user_profile.json     # personal user facts
-memory/commands.json         # personal command log
-memory/preferences.json      # personal preferences
-*.log                        # log files
+config.json
+memory/chat_history.json
+memory/user_profile.json
+memory/commands.json
+memory/preferences.json
+memory/reminders.json
+!memory/.gitkeep
+*.log
 dodo_voice.log
 
 # ── Python ─────────────────────────────────────────────────────────────────────
@@ -12,12 +14,10 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
-.Python
 *.egg-info/
 dist/
 build/
 .eggs/
-*.egg
 
 # ── Virtual Environments ───────────────────────────────────────────────────────
 venv/
@@ -38,5 +38,6 @@ Desktop.ini
 *.pt
 *.bin
 
-# ── Dataset (may contain personal data) ───────────────────────────────────────
+# ── Files DODO created for you (personal) ─────────────────────────────────────
+Desktop/
 dataset/

@@ -5,6 +5,7 @@ Uses a shared queue for voice→UI communication
 and a UI event queue for thread-safe UI updates.
 """
 
+import os
 import sys
 import queue
 import threading
@@ -112,10 +113,56 @@ def greet():
     speech.speak(msg)
 
 
+# ── Pre-flight checks ─────────────────────────────────────────────────────────
+
+def preflight_check() -> bool:
+    """
+    Verify the environment is ready before launching the UI.
+    Returns True if OK, False if the user should run install.py first.
+    """
+    issues = []
+
+    # 1. config.json present?
+    from core.memory import CONFIG_PATH, MEMORY_DIR
+    if not os.path.exists(CONFIG_PATH):
+        issues.append("config.json not found.")
+
+    # 2. API key set?
+    cfg = load_config()
+    key = cfg.get("groq_api_key", "")
+    if not key or key.startswith("YOUR_") or len(key) < 20:
+        issues.append("Groq API key is missing or not set in config.json.")
+
+    # 3. memory/ folder writable?
+    try:
+        mem_test = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "memory"
+        )
+        os.makedirs(mem_test, exist_ok=True)
+    except OSError:
+        issues.append("Cannot write to memory/ folder.")
+
+    if issues:
+        print("\n" + "─" * 52)
+        print("  ⚠  DODO cannot start — setup incomplete:\n")
+        for issue in issues:
+            print(f"     • {issue}")
+        print("\n  Fix: run  python install.py  first.")
+        print("  Free API key: https://console.groq.com")
+        print("─" * 52 + "\n")
+        return False
+
+    return True
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
     global panel
+
+    # Run checks before anything else
+    if not preflight_check():
+        sys.exit(1)
 
     update_session()
     cfg = load_config()
@@ -125,7 +172,7 @@ def main():
 
     # Create voice engine
     voice = VoiceEngine(
-        command_queue  = command_queue,
+        command_queue   = command_queue,
         status_callback = on_voice_status,
     )
 
@@ -140,7 +187,7 @@ def main():
     # Start background threads
     voice.start()
     threading.Thread(target=processing_loop, daemon=True).start()
-    threading.Thread(target=reminder_loop, daemon=True).start()
+    threading.Thread(target=reminder_loop,   daemon=True).start()
 
     # Greeting (slight delay so UI renders first)
     panel.after(1200, greet)
