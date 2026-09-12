@@ -35,5 +35,10 @@
     "debug_mode": false,
     "whisper_wakeword_model": "tiny",
     "gmail_address": "",
-    "gmail_app_password": ""
+    "gmail_app_password": "",
+    "screen_monitor": {
+        "watch_interval": 10,
+        "auto_check_syntax": true,
+        "hotkey": "ctrl+alt+h"
+    }
 }

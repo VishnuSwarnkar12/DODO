@@ -357,6 +357,51 @@ TOOLS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_screen",
+            "description": "Look at the user's screen RIGHT NOW using a screenshot + vision AI. Use when user says: 'what's on my screen', 'what's the error', 'look at this', 'help me with what I'm coding', 'read my screen'. Takes a screenshot and sends to vision model for analysis.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string", "description": "What to look for on screen, e.g. 'what error is showing?' or 'what code is this?'"}
+                },
+                "required": ["question"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "watch_code",
+            "description": "Start or stop watching a code file for changes. When the file is saved, DODO auto-checks syntax and flags errors. Use when user says: 'watch my code', 'monitor this file', 'check my code as I type'. Use action='stop' to stop watching.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["start", "stop", "status"], "description": "'start' to begin watching, 'stop' to stop, 'status' to check"},
+                    "filepath": {"type": "string", "description": "File path to watch (only needed for 'start'). If not given, auto-detects VS Code active file."}
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_code",
+            "description": "Edit code directly in a file. VS Code auto-reloads. Use when user says: 'fix line X', 'add a function', 'change this code', 'replace X with Y'. The edit is done by finding old_text and replacing with new_text.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filepath": {"type": "string", "description": "Absolute path to the file to edit. If not given, auto-detects VS Code active file."},
+                    "old_text": {"type": "string", "description": "Exact text to find and replace in the file"},
+                    "new_text": {"type": "string", "description": "New text to replace it with"}
+                },
+                "required": ["old_text", "new_text"]
+            }
+        }
+    },
 ]
 
 # ── System prompt ─────────────────────────────────────────────────────────────
@@ -596,6 +641,37 @@ def _execute_tool(name: str, args: dict) -> str:
             except Exception as ex:
                 return f"Failed to run command: {str(ex)[:100]}"
 
+        elif name == "analyze_screen":
+            import skills.screen_monitor as sm
+            return sm.analyze_screen(args.get("question", "What do you see on the screen?"))
+
+        elif name == "watch_code":
+            import skills.screen_monitor as sm
+            action = args.get("action", "start")
+            if action == "stop":
+                return sm.stop_watching()
+            elif action == "status":
+                return sm.get_watch_status()
+            else:
+                filepath = args.get("filepath", "")
+                if not filepath:
+                    # Auto-detect from VS Code
+                    editor_info = sm.read_active_editor()
+                    if "error" in editor_info:
+                        return f"Could not detect active file: {editor_info['error']}"
+                    filepath = editor_info["filepath"]
+                return sm.watch_file(filepath)
+
+        elif name == "edit_code":
+            import skills.screen_monitor as sm
+            filepath = args.get("filepath", "")
+            if not filepath:
+                editor_info = sm.read_active_editor()
+                if "error" in editor_info:
+                    return f"Could not detect active file: {editor_info['error']}"
+                filepath = editor_info["filepath"]
+            return sm.edit_file(filepath, args["old_text"], args["new_text"])
+
         return f"Unknown tool: {name}"
 
     except Exception as e:
@@ -606,8 +682,6 @@ def _execute_tool(name: str, args: dict) -> str:
 
 _client = None
 _history: list[dict] = []
-_MAX_HISTORY = 20
-_MAX_TOOL_ROUNDS = 5  # prevent infinite tool-calling loops
 _initialized = False
 
 
