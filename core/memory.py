@@ -10,10 +10,11 @@ from datetime import datetime
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH         = os.path.join(BASE_DIR, "config.json")
 EXAMPLE_CONFIG_PATH = os.path.join(BASE_DIR, "config.example.json")
-COMMANDS_PATH       = os.path.join(BASE_DIR, "memory", "commands.json")
-PREFERENCES_PATH    = os.path.join(BASE_DIR, "memory", "preferences.json")
-FACTS_PATH          = os.path.join(BASE_DIR, "memory", "user_profile.json")
-CHAT_HISTORY_PATH   = os.path.join(BASE_DIR, "memory", "chat_history.json")
+MEMORY_DIR          = os.path.join(BASE_DIR, "memory")
+COMMANDS_PATH       = os.path.join(MEMORY_DIR, "commands.json")
+PREFERENCES_PATH    = os.path.join(MEMORY_DIR, "preferences.json")
+FACTS_PATH          = os.path.join(MEMORY_DIR, "user_profile.json")
+CHAT_HISTORY_PATH   = os.path.join(MEMORY_DIR, "chat_history.json")
 
 
 # ── Config ────────────────────────────────────────────────────────────────────

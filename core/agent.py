@@ -21,13 +21,27 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "web_search",
-            "description": "Search the internet for real-time info, news, facts, prices, etc.",
+            "description": "Search the internet for real-time info, news, facts, prices, sports, current events. Returns snippets only. If user gives a direct URL or wants full page content, use read_url instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {"type": "string", "description": "Search query"}
                 },
                 "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_url",
+            "description": "Fetch and READ the actual content of any webpage — blog posts, news articles, sports scores, any URL. Use this when: user gives a direct URL, user wants latest blog post, user wants to read live content from a specific site. Much better than web_search for specific pages.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "Full URL to fetch and read"}
+                },
+                "required": ["url"]
             }
         }
     },
@@ -382,7 +396,15 @@ def _execute_tool(name: str, args: dict) -> str:
             answer = ws.quick_answer(args["query"])
             if answer:
                 return answer
-            return ws.search(args["query"], max_results=5)
+            return ws.search(args["query"], max_results=6)
+
+        elif name == "read_url":
+            import skills.web_search as ws
+            url = args["url"]
+            if not url.startswith("http"):
+                url = "https://" + url
+            content = ws.summarize_url(url)
+            return f"Page content from {url}:\n\n{content}"
 
         elif name == "get_weather":
             import skills.weather as w
@@ -614,6 +636,9 @@ def _get_model() -> str:
 
 # ── Main agent entry point ────────────────────────────────────────────────────
 
+_MAX_TOOL_ROUNDS = 6   # max LLM→tool loops per user turn
+_MAX_HISTORY     = 20  # messages kept in context
+
 def process(user_message: str) -> str:
     """
     Process a user message using the agentic tool-calling loop.
@@ -651,7 +676,7 @@ def process(user_message: str) -> str:
                 tools=TOOLS,
                 tool_choice="auto",
                 temperature=0.7,
-                max_tokens=1024,
+                max_tokens=2048,
             )
 
             msg = response.choices[0].message
@@ -705,17 +730,26 @@ def process(user_message: str) -> str:
                     "content": str(result)
                 })
 
-        # If we exceeded max rounds, summarize what was done instead of a silent fallback
-        # Gather tool call summaries from messages
-        tool_summaries = []
-        for m in messages:
-            if m.get("role") == "tool":
-                tool_summaries.append(m.get("content", "")[:80])
-
-        if tool_summaries:
-            reply = "Here's what I did:\n" + "\n".join(f"• {s}" for s in tool_summaries[-3:])
-        else:
+        # Exceeded max rounds — ask the LLM to synthesise all tool results
+        # into a proper answer instead of dumping raw snippets
+        try:
+            synthesis = client.chat.completions.create(
+                model=model,
+                messages=messages + [{
+                    "role": "user",
+                    "content": "Now summarise everything you found and give a complete, helpful answer."
+                }],
+                tools=TOOLS,
+                tool_choice="none",
+                temperature=0.5,
+                max_tokens=2048,
+            )
+            reply = (synthesis.choices[0].message.content or "").strip()
+            if not reply:
+                reply = "I gathered info but couldn't form a reply. Try asking again."
+        except Exception:
             reply = "I ran out of steps. Try rephrasing your request."
+
         _history.append({"role": "assistant", "content": reply})
         save_chat_history(_history)
         return reply
