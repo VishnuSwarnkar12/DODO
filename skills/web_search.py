@@ -204,8 +204,8 @@ def summarize_url(url: str) -> str:
         if not clean_text:
             return "No readable content could be extracted from the webpage."
 
-        # Return first 2000 characters
-        return clean_text[:2000].strip()
+        # Return first 5000 characters (2000 was too short for blog posts/news)
+        return clean_text[:5000].strip()
 
     except requests.exceptions.Timeout:
         return f"Request timed out while trying to reach {target_url}."

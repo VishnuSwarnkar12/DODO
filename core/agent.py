@@ -579,8 +579,16 @@ def _execute_tool(name: str, args: dict) -> str:
             import pyautogui, time
             time.sleep(1.2)  # wait for window to be focused/ready
             text = args["text"]
-            pyautogui.typewrite(text, interval=0.04)
-            if args.get("press_enter", True):
+            # Use clipboard paste instead of typewrite — supports Unicode/Hindi/emoji
+            try:
+                import pyperclip
+                pyperclip.copy(text)
+                pyautogui.hotkey("ctrl", "v")
+            except ImportError:
+                # Fallback: typewrite only works with ASCII
+                pyautogui.typewrite(text, interval=0.04)
+            if args.get("press_enter", False):
+                time.sleep(0.2)
                 pyautogui.press("enter")
             return f"Typed: {text}"
 
@@ -626,7 +634,11 @@ def _execute_tool(name: str, args: dict) -> str:
 
         elif name == "run_command":
             import subprocess
-            desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+            home = os.path.expanduser("~")
+            # Check OneDrive Desktop first, then regular Desktop
+            desktop = os.path.join(home, "OneDrive", "AppData", "Desktop")
+            if not os.path.exists(desktop):
+                desktop = os.path.join(home, "Desktop")
             cwd = args.get("working_dir", desktop)
             if not os.path.exists(cwd):
                 cwd = desktop
