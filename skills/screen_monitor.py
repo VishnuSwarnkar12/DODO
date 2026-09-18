@@ -97,18 +97,76 @@ def _get_vision_client():
 
 def analyze_screen(question: str = "What do you see on the screen?") -> str:
     """
-    Take a screenshot and ask the vision model about it.
+    Analyze what the user is working on.
+    
+    Strategy (smart fallback):
+      1. Try reading the active VS Code file directly — fast, free, no vision model.
+         Send the code to the text LLM with the user's question.
+      2. If VS Code isn't open, try screenshot + vision model.
+      3. If vision model isn't available, explain what happened.
     
     Args:
         question: What to ask about the screen content.
         
     Returns:
-        The vision model's analysis as a string.
+        The AI's analysis as a string.
     """
+    cfg = load_config()
+
+    # ── Strategy 1: Read the VS Code file directly ────────────────────────
+    editor_info = read_active_editor()
+    if "error" not in editor_info:
+        # Got the file — send code to text LLM (no vision model needed)
+        filepath = editor_info["filepath"]
+        content = editor_info["content"]
+        language = editor_info["language"]
+        filename = editor_info["filename"]
+        lines = editor_info["lines"]
+
+        # Truncate very long files to avoid token limits
+        if len(content) > 8000:
+            content = content[:8000] + "\n\n... (file truncated at 8000 chars)"
+
+        # Also run a quick syntax check
+        syntax_result = check_syntax(filepath)
+
+        try:
+            client = _get_vision_client()
+            model = cfg.get("groq_model", "openai/gpt-oss-120b")
+
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{
+                    "role": "system",
+                    "content": (
+                        "You are DODO, an expert AI coding assistant. "
+                        "The user is currently editing a file in VS Code. "
+                        "You can see the full file content below. "
+                        "Help them with their question — be concise and actionable. "
+                        "If there are errors, point to exact line numbers."
+                    )
+                }, {
+                    "role": "user",
+                    "content": (
+                        f"**File:** {filename} ({language}, {lines} lines)\n"
+                        f"**Path:** {filepath}\n"
+                        f"**Syntax check:** {syntax_result}\n\n"
+                        f"```{language}\n{content}\n```\n\n"
+                        f"**My question:** {question}"
+                    )
+                }],
+                temperature=0.3,
+                max_tokens=2048,
+            )
+            return response.choices[0].message.content.strip()
+
+        except Exception as e:
+            return f"I can see you're editing {filename} but hit an error analyzing it: {str(e)[:100]}"
+
+    # ── Strategy 2: Screenshot + vision model ─────────────────────────────
     try:
         img_b64 = capture_screen()
 
-        cfg = load_config()
         vision_model = cfg.get(
             "openai_vision_model",
             "meta-llama/llama-4-scout-17b-16e-instruct"
@@ -123,7 +181,7 @@ def analyze_screen(question: str = "What do you see on the screen?") -> str:
                 "content": [
                     {"type": "text", "text": (
                         "You are DODO, an AI coding assistant looking at the user's screen. "
-                        "Focus on code, errors, file names, and anything relevant to programming. "
+                        "Focus on code, errors, file names, and anything relevant. "
                         "Be concise and actionable.\n\n"
                         f"User's question: {question}"
                     )},
@@ -140,12 +198,23 @@ def analyze_screen(question: str = "What do you see on the screen?") -> str:
 
     except Exception as e:
         _cleanup_temp()
-        err = str(e)
-        if "rate" in err.lower() or "limit" in err.lower():
+        err = str(e).lower()
+
+        # If vision failed but we know VS Code wasn't open, give helpful message
+        if "modality" in err or "image" in err or "vision" in err or "not found" in err:
+            return (
+                "⚠️ Vision model isn't available on Groq right now. "
+                "But I can still help! Open a file in VS Code and ask me again — "
+                "I'll read the file directly without needing a screenshot."
+            )
+        if "rate" in err or "limit" in err:
             return "⚠️ Rate limited — try again in a moment."
-        if "vision" in err.lower() or "image" in err.lower() or "modality" in err.lower():
-            return "⚠️ Vision model doesn't support image input. Check openai_vision_model in config.json."
-        return f"⚠️ Screen analysis failed: {err[:120]}"
+        if "screen grab" in err:
+            return (
+                "⚠️ Screenshot failed (display not accessible). "
+                "Open a file in VS Code and ask me again — I'll read the code directly."
+            )
+        return f"⚠️ Screen analysis failed: {str(e)[:120]}"
 
 
 # ── Active Editor Detection ──────────────────────────────────────────────────
