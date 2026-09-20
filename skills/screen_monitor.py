@@ -330,6 +330,19 @@ def _find_file_path(filename: str, title_parts: list) -> Optional[str]:
 
 # ── File Editing ──────────────────────────────────────────────────────────────
 
+_BLOCKED_EDIT_PATTERNS = [
+    'config.json', '.env', '.ssh', '.gnupg', '.git/config', 
+    'memory/', 'credentials', 'tokens', 'secrets',
+]
+
+def _is_safe_edit_path(filepath: str) -> bool:
+    real = os.path.realpath(filepath)
+    real_lower = real.lower().replace('\\', '/')
+    for blocked in _BLOCKED_EDIT_PATTERNS:
+        if blocked.lower() in real_lower:
+            return False
+    return True
+
 def edit_file(filepath: str, old_text: str, new_text: str) -> str:
     """
     Replace text in a file. VS Code auto-reloads when the file changes on disk.
@@ -344,6 +357,9 @@ def edit_file(filepath: str, old_text: str, new_text: str) -> str:
     """
     if not os.path.exists(filepath):
         return f"❌ File not found: {filepath}"
+
+    if not _is_safe_edit_path(filepath):
+        return f"❌ Cannot edit protected file: {os.path.basename(filepath)}"
 
     try:
         with open(filepath, "r", encoding="utf-8") as f:

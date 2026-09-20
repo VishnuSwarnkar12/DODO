@@ -7,6 +7,7 @@ Optional: add Gmail SMTP credentials to config.json for fully automatic sending.
 
 import urllib.parse
 import subprocess
+import webbrowser
 import smtplib
 import logging
 from email.mime.text import MIMEText
@@ -57,12 +58,7 @@ def send_email(to: str, subject: str, body: str) -> str:
     gmail_url = f"https://mail.google.com/mail/u/0/?view=cm&{params}"
 
     try:
-        subprocess.Popen(
-            f'start "" "{gmail_url}"',
-            shell=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
+        webbrowser.open(gmail_url)
         logger.info("Gmail compose opened for %s", to)
         return (
             f"📧 Gmail opened with the email pre-filled.\n"

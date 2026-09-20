@@ -30,8 +30,10 @@ def run_powershell(script: str) -> tuple[int, str, str]:
 
 def is_process_running(name: str) -> bool:
     """Check if a process with given name is running."""
+    import re
+    if not re.match(r'^[a-zA-Z0-9_.\-\s]+$', name): return False
     code, out, _ = run_command(
-        f'tasklist /FI "IMAGENAME eq {name}.exe" /FO CSV /NH', shell=True
+        ['tasklist', '/FI', f'IMAGENAME eq {name}.exe', '/FO', 'CSV', '/NH']
     )
     return name.lower() in out.lower()
 

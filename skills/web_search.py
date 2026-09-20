@@ -154,6 +154,26 @@ def summarize_url(url: str) -> str:
     if not target_url.startswith(("http://", "https://")):
         target_url = f"https://{target_url}"
 
+    import socket
+    from urllib.parse import urlparse
+
+    parsed = urlparse(target_url)
+    hostname = parsed.hostname
+    if not hostname:
+        return "Invalid URL."
+
+    # Block private/loopback IPs
+    try:
+        ip = socket.gethostbyname(hostname)
+        parts = ip.split('.')
+        if (ip.startswith('127.') or ip.startswith('10.') or 
+            ip.startswith('192.168.') or ip == '0.0.0.0' or
+            ip.startswith('169.254.') or
+            (ip.startswith('172.') and 16 <= int(parts[1]) <= 31)):
+            return "Cannot access internal/private network addresses."
+    except socket.gaierror:
+        return f"Could not resolve hostname: {hostname}"
+
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

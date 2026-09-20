@@ -41,3 +41,15 @@ Desktop.ini
 # ── Files DODO created for you (personal) ─────────────────────────────────────
 Desktop/
 dataset/
+
+# ── Security: block common secret files ──
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*credentials*.json
+client_secret*.json
+memory/*.json
+!memory/.gitkeep

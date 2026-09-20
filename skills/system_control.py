@@ -4,11 +4,13 @@ Controls apps, volume, screen, power on Windows.
 """
 
 import os
+import glob
 import ctypes
 import subprocess
 import pyautogui
 import psutil
 import time
+import re
 from datetime import datetime
 from skills.utils import run_command, run_powershell, is_process_running, get_base_dir
 
@@ -123,6 +125,9 @@ _APP_COMMANDS = {
 
 def open_app(name: str) -> bool:
     name = name.lower().strip()
+    if not re.match(r'^[a-zA-Z0-9_.\-\s]+$', name):
+        if name != "ms-settings:":
+            return False
     cmd  = _APP_COMMANDS.get(name)
     if cmd:
         try:
@@ -136,7 +141,7 @@ def open_app(name: str) -> bool:
         return True
     # Generic: try os.startfile / start command
     try:
-        subprocess.Popen(["start", name], shell=True)
+        os.startfile(name)
         return True
     except Exception:
         return False
@@ -153,7 +158,8 @@ def close_app(name: str) -> bool:
         "code": "code", "vscode": "code",
     }
     exe = exe_map.get(name, name)
-    code, _, _ = run_command(f"taskkill /F /IM {exe}.exe", shell=True)
+    if not re.match(r'^[a-zA-Z0-9_.\-\s]+$', exe): return False
+    code, _, _ = run_command(['taskkill', '/F', '/IM', f'{exe}.exe'])
     return code == 0
 
 
@@ -163,7 +169,20 @@ def lock_screen():
     ctypes.windll.user32.LockWorkStation()
 
 
+def _cleanup_old_screenshots():
+    """Delete DODO screenshots older than 24 hours."""
+    pics = os.path.join(os.path.expanduser("~"), "Pictures")
+    cutoff = time.time() - 86400  # 24 hours
+    for f in glob.glob(os.path.join(pics, "DODO_screenshot_*.png")):
+        try:
+            if os.path.getmtime(f) < cutoff:
+                os.remove(f)
+        except OSError:
+            pass
+
+
 def take_screenshot() -> str:
+    _cleanup_old_screenshots()
     ts    = datetime.now().strftime("%Y%m%d_%H%M%S")
     pics  = os.path.join(os.path.expanduser("~"), "Pictures")
     path  = os.path.join(pics, f"DODO_screenshot_{ts}.png")
