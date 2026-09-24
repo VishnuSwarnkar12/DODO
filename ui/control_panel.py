@@ -1,19 +1,25 @@
 """
 DODO — ui/control_panel.py
-Main customtkinter control panel window.
+Main desktop window — teal dark theme, chat-first layout with icon sidebar.
 
-Layout order (CRITICAL for tkinter pack manager):
-  1. Titlebar         — side=top
-  2. Input bar        — side=bottom  ← MUST be packed before expanding sections
-  3. Controls bar     — side=bottom  ← MUST be packed before expanding sections
-  4. Orb / greeting   — side=top, fixed height
-  5. Chat area        — fill=both, expand=True  ← takes all remaining space
-  6. Log area         — side=bottom of remaining, fixed height
+Layout:
+  ┌──────┬──────────────────────────────────┐
+  │ Logo │  DODO  ● Online   [Model ▾]     │
+  │  ⌂   │──────────────────────────────────│
+  │  ◯   │                                  │
+  │  ◇   │    Chat / Home / Memory content  │
+  │  ⚙   │                                  │
+  │      │──────────────────────────────────│
+  │  ●   │  [ Ask DODO anything... ] [➤][🎤]│
+  └──────┴──────────────────────────────────┘
 """
 
+import os
+import json
 import queue
 import threading
 import tkinter as tk
+from tkinter import messagebox
 import customtkinter as ctk
 from PIL import Image, ImageDraw
 import pystray
@@ -26,29 +32,30 @@ ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
 
-# ── Colours ────────────────────────────────────────────────────────────────────
-BG_PRIMARY   = "#0d0d1a"
-BG_SECONDARY = "#111128"
-BG_CARD      = "#161630"
-ACCENT       = "#4f9fff"
-ACCENT2      = "#9b4fff"
-TEXT_DIM     = "#5566aa"
-TEXT_MAIN    = "#d0d8f0"
-TEXT_BRIGHT  = "#ffffff"
-DANGER       = "#ff4f7b"
-SUCCESS      = "#00e5a0"
+# ── Teal palette ──────────────────────────────────────────────────────────────
+
+BG          = "#0a0e14"
+SIDEBAR     = "#0d1117"
+SURFACE     = "#151b25"
+SURFACE_ALT = "#1c2433"
+ACCENT      = "#00d4aa"
+ACCENT_SOFT = "#0d3d35"
+TEXT        = "#e0e6f0"
+MUTED       = "#5a6580"
+DANGER      = "#ff4f7b"
+GOLD        = "#ffd700"
 
 
 class ControlPanel(ctk.CTk):
-    """DODO's main desktop window."""
+    """DODO's main desktop window — teal dark theme."""
 
     STATUS_LABELS = {
-        "IDLE":         ("● IDLE",         "#4f9fff"),
-        "LISTENING":    ("◉ LISTENING",    "#00aaff"),
-        "PROCESSING":   ("⟳ PROCESSING",   "#9b4fff"),
-        "SPEAKING":     ("▷ SPEAKING",     "#cc44ff"),
-        "CALIBRATING":  ("◈ CALIBRATING",  "#ffaa00"),
-        "MIC_ERROR":    ("✕ MIC ERROR",    "#ff4f7b"),
+        "IDLE":        ("● IDLE",        ACCENT),
+        "LISTENING":   ("◉ LISTENING",   "#00aaff"),
+        "PROCESSING":  ("⟳ PROCESSING",  "#9b4fff"),
+        "SPEAKING":    ("▷ SPEAKING",    "#00ffcc"),
+        "CALIBRATING": ("◈ CALIBRATING", "#ffaa00"),
+        "MIC_ERROR":   ("✕ MIC ERROR",   DANGER),
     }
 
     def __init__(self, command_queue: queue.Queue,
@@ -59,444 +66,572 @@ class ControlPanel(ctk.CTk):
         self.voice_engine  = voice_engine
         self.on_exit       = on_exit
         self._tray_icon    = None
-        self._confirm_result = None
         self._ui_queue: queue.Queue = queue.Queue()
+        self._config       = load_config()
+        self.user_name     = get_user_name()
+        hotkey             = self._config.get("hotkey", "ctrl+alt+d")
 
-        # State for mic button animation
-        self._mic_btn_listening = False
-
-        cfg = load_config()
-        self.user_name = get_user_name()
-        hotkey         = cfg.get("hotkey", "ctrl+alt+d")
-
-        # ── Window setup ──────────────────────────────────────────────────────
+        # ── Window ────────────────────────────────────────────────────────────
         self.title("DODO")
-        self.geometry("440x740")
-        self.minsize(380, 600)
-        self.resizable(True, True)
-        self.configure(fg_color=BG_PRIMARY)
-
+        self.geometry("920x660")
+        self.minsize(700, 500)
+        self.configure(fg_color=BG)
         try:
             self.iconbitmap(self._get_icon_path())
         except Exception:
             pass
-
-        self.protocol("WM_DELETE_WINDOW", self._minimize_to_tray)
-
         try:
             keyboard.add_hotkey(hotkey, self._hotkey_show)
         except Exception:
             pass
-
-        # ── Build UI (ORDER MATTERS for tkinter pack manager) ─────────────────
-        self._build_titlebar()          # ① top — always visible header
-        self._build_input_bar()         # ② bottom — MUST come before expanding sections
-        self._build_quick_controls()    # ③ bottom — MUST come before expanding sections
-        self._build_orb_section()       # ④ top — fixed height orb + greeting
-        self._build_log_section()       # ⑤ bottom of remaining space
-        self._build_chat_section()      # ⑥ fills ALL remaining space (expand=True)
-
-        # ── Start polling queue ───────────────────────────────────────────────
-        self._poll_queue()
-
-        # ── System tray ───────────────────────────────────────────────────────
+        self.protocol("WM_DELETE_WINDOW", self._minimize_to_tray)
         self._start_tray()
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    # UI Building
-    # ═══════════════════════════════════════════════════════════════════════════
+        # ── Build skeleton ────────────────────────────────────────────────────
+        self._build_sidebar()
+        self._content = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+        self._content.pack(side="left", fill="both", expand=True)
 
-    def _build_titlebar(self):
-        bar = ctk.CTkFrame(self, fg_color=BG_SECONDARY, height=46, corner_radius=0)
-        bar.pack(fill="x", side="top")
+        # Refs to per-view widgets (cleared on view switch)
+        self._chat_scroll  = None
+        self._log_scroll   = None
+        self._orb          = None
+        self._hero_status  = None
+        self._header_status= None
+        self._input_box    = None
+        self._mic_btn      = None
+
+        # Persistent message buffers — survive tab switches
+        self._chat_messages: list[tuple[str, str]] = []   # [(text, sender), ...]
+        self._log_messages:  list[tuple[str, str]] = []   # [(action_type, text), ...]
+
+        self._active_view = "chat"
+        self._show_view("chat")
+        self._poll_queue()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SIDEBAR — slim 64 px icon rail
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _build_sidebar(self):
+        sb = ctk.CTkFrame(self, width=64, fg_color=SIDEBAR, corner_radius=0)
+        sb.pack(side="left", fill="y")
+        sb.pack_propagate(False)
+
+        # Logo
+        ctk.CTkLabel(sb, text="◈", font=ctk.CTkFont("Segoe UI", 26),
+                     text_color=ACCENT).pack(pady=(20, 28))
+
+        # Nav icons
+        self._nav_buttons = {}
+        for key, icon in [("home", "⌂"), ("chat", "◯"), ("memory", "◇"), ("settings", "⚙")]:
+            btn = ctk.CTkButton(
+                sb, text=icon, width=42, height=42,
+                font=ctk.CTkFont("Segoe UI", 18),
+                fg_color="transparent", hover_color=SURFACE_ALT,
+                text_color=MUTED, corner_radius=10,
+                command=lambda v=key: self._show_view(v),
+            )
+            btn.pack(pady=3)
+            self._nav_buttons[key] = btn
+
+        # Status dot
+        self._side_status = ctk.CTkLabel(
+            sb, text="●", font=ctk.CTkFont("Segoe UI", 14), text_color=ACCENT
+        )
+        self._side_status.pack(side="bottom", pady=18)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # VIEW SWITCHING
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _clear_content(self):
+        for w in self._content.winfo_children():
+            w.destroy()
+        # Invalidate refs to destroyed widgets
+        self._chat_scroll = self._log_scroll = None
+        self._orb = self._hero_status = self._header_status = None
+        self._input_box = self._mic_btn = None
+
+    def _show_view(self, view: str):
+        self._active_view = view
+        self._clear_content()
+        for k, b in self._nav_buttons.items():
+            b.configure(
+                fg_color=ACCENT_SOFT if k == view else "transparent",
+                text_color=ACCENT if k == view else MUTED,
+            )
+        builders = {
+            "home": self._build_home, "chat": self._build_chat_view,
+            "memory": self._build_memory, "settings": self._build_settings,
+        }
+        builders.get(view, self._build_chat_view)()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SHARED COMPONENTS
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _build_header(self, parent):
+        hdr = ctk.CTkFrame(parent, fg_color=SIDEBAR, height=52, corner_radius=0)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+        ctk.CTkLabel(hdr, text="DODO", font=ctk.CTkFont("Consolas", 16, "bold"),
+                     text_color=TEXT).pack(side="left", padx=(20, 8))
+        self._header_status = ctk.CTkLabel(
+            hdr, text="● Online", font=ctk.CTkFont("Segoe UI", 11), text_color=ACCENT
+        )
+        self._header_status.pack(side="left")
+        # Model selector
+        models = ["Gemini 2.0 Flash", "Groq GPT-OSS-120B"]
+        current = "Gemini 2.0 Flash" if self._config.get("ai_provider") == "gemini" else "Groq GPT-OSS-120B"
+        sel = ctk.CTkOptionMenu(
+            hdr, values=models, fg_color=SURFACE_ALT, button_color=SURFACE_ALT,
+            button_hover_color="#253040", dropdown_fg_color=SURFACE,
+            text_color=TEXT, font=ctk.CTkFont("Segoe UI", 11),
+            command=self._on_model_change, width=200, height=30, corner_radius=8,
+        )
+        sel.set(current)
+        sel.pack(side="right", padx=20)
+
+    def _build_input_bar(self, parent):
+        bar = ctk.CTkFrame(parent, fg_color=SIDEBAR, height=64, corner_radius=0)
+        bar.pack(side="bottom", fill="x")
         bar.pack_propagate(False)
-
-        name_frame = ctk.CTkFrame(bar, fg_color="transparent")
-        name_frame.pack(side="left", padx=14)
-
-        ctk.CTkLabel(
-            name_frame, text="⬡",
-            font=ctk.CTkFont("Segoe UI", 20),
-            text_color=ACCENT
-        ).pack(side="left", padx=(0, 6))
-
-        ctk.CTkLabel(
-            name_frame, text="D O D O",
-            font=ctk.CTkFont("Consolas", 15, "bold"),
-            text_color=TEXT_BRIGHT
-        ).pack(side="left")
-
-        # Status pill
-        self._status_label = ctk.CTkLabel(
-            bar, text="● IDLE",
-            font=ctk.CTkFont("Consolas", 11, "bold"),
-            text_color=ACCENT,
-            fg_color="#0d0d2e",
-            corner_radius=10,
-            padx=10, pady=3
-        )
-        self._status_label.pack(side="right", padx=14)
-
-        bar.bind("<ButtonPress-1>",  self._drag_start)
-        bar.bind("<B1-Motion>",      self._drag_motion)
-
-    def _build_orb_section(self):
-        """Animated orb + greeting label — fixed height at top."""
-        frame = ctk.CTkFrame(self, fg_color=BG_PRIMARY)
-        frame.pack(fill="x", side="top", pady=(6, 0))
-
-        self._orb = PulsingOrb(frame, size=130)
-        self._orb.pack(pady=(10, 3))
-
-        greeting = f"Hello, {self.user_name}. I'm DODO, your assistant."
-        self._greeting_label = ctk.CTkLabel(
-            frame, text=greeting,
-            font=ctk.CTkFont("Segoe UI", 11),
-            text_color=TEXT_DIM
-        )
-        self._greeting_label.pack(pady=(0, 6))
-
-    def _build_chat_section(self):
-        """
-        Conversation area — expands to fill remaining vertical space.
-        Must be packed LAST so expand=True takes all leftover room.
-        """
-        header = ctk.CTkFrame(self, fg_color=BG_SECONDARY, height=28, corner_radius=0)
-        header.pack(fill="x", side="top")
-        header.pack_propagate(False)
-        ctk.CTkLabel(
-            header, text="💬  Conversation",
-            font=ctk.CTkFont("Segoe UI", 11, "bold"),
-            text_color=TEXT_DIM
-        ).pack(side="left", padx=12)
-
-        self._chat_scroll = ctk.CTkScrollableFrame(
-            self, fg_color=BG_CARD, corner_radius=0
-        )
-        # fill="both" + expand=True → takes ALL remaining space
-        self._chat_scroll.pack(fill="both", expand=True, side="top")
-
-    def _build_log_section(self):
-        """Compact action log at the bottom of the main area."""
-        header = ctk.CTkFrame(self, fg_color=BG_SECONDARY, height=26, corner_radius=0)
-        header.pack(fill="x", side="bottom")
-        header.pack_propagate(False)
-        ctk.CTkLabel(
-            header, text="📋  Action Log",
-            font=ctk.CTkFont("Segoe UI", 10, "bold"),
-            text_color=TEXT_DIM
-        ).pack(side="left", padx=12)
-
-        self._log_scroll = ctk.CTkScrollableFrame(
-            self, fg_color=BG_SECONDARY, height=80, corner_radius=0
-        )
-        self._log_scroll.pack(fill="x", side="bottom")
-
-    def _build_quick_controls(self):
-        """
-        Controls bar — packed side=bottom (before chat/log so it always shows).
-        Contains: Mic & Online toggles, quick-action buttons, calibrate.
-        """
-        frame = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=0)
-        frame.pack(fill="x", side="bottom")
-
-        inner = ctk.CTkFrame(frame, fg_color="transparent")
-        inner.pack(fill="x", padx=12, pady=(8, 6))
-
-        # ── Row A: toggles + calibrate ────────────────────────────────────────
-        row_a = ctk.CTkFrame(inner, fg_color="transparent")
-        row_a.pack(fill="x", pady=(0, 4))
-
-        self._mic_toggle = ToggleSwitch(
-            row_a, "🎤 Mic",
-            initial=load_config().get("mic_enabled", True),
-            on_change=self._on_mic_toggle
-        )
-        self._mic_toggle.pack(side="left", padx=(0, 16))
-
-        self._online_toggle = ToggleSwitch(
-            row_a, "🌐 Online",
-            initial=load_config().get("online_mode", True),
-            on_change=self._on_online_toggle
-        )
-        self._online_toggle.pack(side="left", padx=(0, 16))
-
-        ctk.CTkButton(
-            row_a, text="🎙️ Calibrate", width=110, height=26,
-            font=ctk.CTkFont("Segoe UI", 11),
-            fg_color="#1e3020", hover_color="#2a4a30",
-            text_color=SUCCESS, corner_radius=8,
-            command=self._calibrate_mic
-        ).pack(side="left", padx=(0, 6))
-
-        ctk.CTkButton(
-            row_a, text="🔊 Test", width=70, height=26,
-            font=ctk.CTkFont("Segoe UI", 11),
-            fg_color="#201e3a", hover_color="#302a5a",
-            text_color="#cc44ff", corner_radius=8,
-            command=self._test_voice
-        ).pack(side="left")
-
-        self._calib_label = ctk.CTkLabel(
-            row_a, text="",
-            font=ctk.CTkFont("Segoe UI", 10),
-            text_color="#ffaa00"
-        )
-        self._calib_label.pack(side="left", padx=8)
-
-        # ── Row B: quick-action buttons ───────────────────────────────────────
-        row_b = ctk.CTkFrame(inner, fg_color="transparent")
-        row_b.pack(fill="x")
-
-        for label, cmd in [
-            ("📸 Screenshot", "take a screenshot"),
-            ("🔋 Battery",    "battery status"),
-            ("🔒 Lock",       "lock screen"),
-        ]:
-            ctk.CTkButton(
-                row_b, text=label, width=110, height=26,
-                font=ctk.CTkFont("Segoe UI", 11),
-                fg_color="#1e1e3e", hover_color="#2a2a5a",
-                text_color=TEXT_MAIN, corner_radius=8,
-                command=lambda c=cmd: self._inject_command(c)
-            ).pack(side="left", padx=(0, 6))
-
-    def _build_input_bar(self):
-        """
-        Text input + mic button + send — always visible at the very bottom.
-        Packed side=bottom BEFORE the expanding chat section.
-        """
-        bar = ctk.CTkFrame(self, fg_color=BG_SECONDARY, corner_radius=0)
-        bar.pack(fill="x", side="bottom")
-
         inner = ctk.CTkFrame(bar, fg_color="transparent")
-        inner.pack(fill="x", padx=10, pady=8)
+        inner.pack(fill="x", padx=16, pady=10)
 
-        # ── Text entry ────────────────────────────────────────────────────────
-        self._input_box = ctk.CTkEntry(
-            inner,
-            placeholder_text="Type a command and press Enter or click Send…",
-            font=ctk.CTkFont("Segoe UI", 13),
-            fg_color="#0d0d2e",
-            border_color=ACCENT,
-            text_color=TEXT_MAIN,
-            height=38,
-            corner_radius=10,
+        self._input_box = ctk.CTkTextbox(
+            inner, height=40, width=200,
+            fg_color=SURFACE, border_color=SURFACE_ALT, border_width=1,
+            text_color=TEXT, font=ctk.CTkFont("Segoe UI", 13),
+            corner_radius=12, wrap="word",
         )
-        self._input_box.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        self._input_box.bind("<Return>", self._on_text_submit)
+        self._input_box.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        # Enter sends, Shift+Enter makes new line
+        self._input_box.bind("<Return>", self._on_enter_key)
+        self._input_box.bind("<Shift-Return>", self._on_shift_enter)
 
-        # ── Mic / voice button ────────────────────────────────────────────────
+        ctk.CTkButton(
+            inner, text="➤", width=40, height=40, corner_radius=20,
+            fg_color=ACCENT, hover_color="#00b894",
+            text_color=BG, font=ctk.CTkFont("Segoe UI", 16, "bold"),
+            command=self._on_text_submit,
+        ).pack(side="left", padx=(0, 6))
+
         self._mic_btn = ctk.CTkButton(
-            inner,
-            text="🎤",
-            width=44, height=38,
-            font=ctk.CTkFont("Segoe UI", 18),
-            fg_color="#1e1e3e",
-            hover_color="#2a2a5a",
-            text_color=ACCENT,
-            corner_radius=10,
+            inner, text="🎤", width=40, height=40, corner_radius=20,
+            fg_color=SURFACE_ALT, hover_color="#253040",
+            text_color=ACCENT, font=ctk.CTkFont("Segoe UI", 16),
             command=self._on_mic_btn_click,
         )
-        self._mic_btn.pack(side="left", padx=(0, 6))
+        self._mic_btn.pack(side="left")
 
-        # ── Send button ───────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+    # HOME VIEW — orb + greeting + quick actions
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _build_home(self):
+        self._build_header(self._content)
+
+        body = ctk.CTkScrollableFrame(self._content, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=30, pady=20)
+
+        # Greeting
+        ctk.CTkLabel(body, text="GOOD TO SEE YOU", font=ctk.CTkFont("Consolas", 10, "bold"),
+                     text_color=ACCENT).pack(anchor="w")
+        ctk.CTkLabel(body, text=f"What should we do, {self.user_name}?",
+                     font=ctk.CTkFont("Segoe UI", 26, "bold"),
+                     text_color=TEXT).pack(anchor="w", pady=(4, 0))
+        ctk.CTkLabel(body, text="Speak naturally or choose a quick action.",
+                     font=ctk.CTkFont("Segoe UI", 12),
+                     text_color=MUTED).pack(anchor="w", pady=(4, 24))
+
+        # Orb hero card
+        orb_card = ctk.CTkFrame(body, fg_color=SURFACE, corner_radius=14)
+        orb_card.pack(fill="x", pady=(0, 20))
+        orb_inner = ctk.CTkFrame(orb_card, fg_color="transparent")
+        orb_inner.pack(fill="x", padx=22, pady=18)
+
+        self._orb = PulsingOrb(orb_inner, size=120, bg=SURFACE)
+        self._orb.pack(side="left", padx=(0, 22))
+
+        info = ctk.CTkFrame(orb_inner, fg_color="transparent")
+        info.pack(side="left", fill="x", expand=True)
+        self._hero_status = ctk.CTkLabel(
+            info, text="● IDLE", font=ctk.CTkFont("Consolas", 18, "bold"), text_color=ACCENT
+        )
+        self._hero_status.pack(anchor="w")
+        ctk.CTkLabel(info, text="DODO is ready for your next move.",
+                     font=ctk.CTkFont("Segoe UI", 12), text_color=MUTED
+        ).pack(anchor="w", pady=(4, 0))
         ctk.CTkButton(
-            inner,
-            text="Send",
-            width=70, height=38,
-            font=ctk.CTkFont("Segoe UI", 13, "bold"),
-            fg_color=ACCENT,
-            hover_color="#3a7fdd",
-            text_color=TEXT_BRIGHT,
-            corner_radius=10,
-            command=self._on_text_submit,
-        ).pack(side="left")
+            info, text="Start listening", width=140, height=36, corner_radius=18,
+            fg_color=ACCENT, hover_color="#00b894", text_color=BG,
+            font=ctk.CTkFont("Segoe UI", 12, "bold"), command=self._on_mic_btn_click,
+        ).pack(anchor="w", pady=(14, 0))
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Public API (called from main thread via after())
-    # ═══════════════════════════════════════════════════════════════════════════
+        # Quick actions
+        ctk.CTkLabel(body, text="QUICK ACTIONS", font=ctk.CTkFont("Consolas", 10, "bold"),
+                     text_color=MUTED).pack(anchor="w", pady=(0, 8))
+        qa = ctk.CTkFrame(body, fg_color="transparent")
+        qa.pack(fill="x")
+        for label, cmd in [("📸  Screenshot", "take a screenshot"),
+                           ("🔋  Battery", "battery status"),
+                           ("🌐  My Blog", "open my blog"),
+                           ("🔒  Lock", "lock screen")]:
+            ctk.CTkButton(
+                qa, text=label, width=130, height=38, corner_radius=10,
+                fg_color=SURFACE, hover_color=SURFACE_ALT,
+                text_color=TEXT, font=ctk.CTkFont("Segoe UI", 11),
+                command=lambda c=cmd: self._inject_command(c),
+            ).pack(side="left", padx=(0, 8))
+
+        self._build_input_bar(self._content)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # CHAT VIEW — default, full-height conversation
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _build_chat_view(self):
+        self._build_header(self._content)
+
+        # Chat area
+        self._chat_scroll = ctk.CTkScrollableFrame(
+            self._content, fg_color=BG, corner_radius=0
+        )
+        self._chat_scroll.pack(fill="both", expand=True, padx=12, pady=(8, 0))
+
+        # Restore buffered chat messages
+        for text, sender in self._chat_messages:
+            bubble = ChatBubble(self._chat_scroll, text, sender)
+            bubble.pack(fill="x", padx=(80, 6) if sender == "user" else (6, 80), pady=4)
+        self.after(50, lambda: self._safe_scroll(self._chat_scroll))
+
+        # Activity log strip
+        log_strip = ctk.CTkFrame(self._content, fg_color=SURFACE, height=75, corner_radius=0)
+        log_strip.pack(fill="x")
+        log_strip.pack_propagate(False)
+        ctk.CTkLabel(log_strip, text="ACTIVITY", font=ctk.CTkFont("Consolas", 9, "bold"),
+                     text_color=MUTED).pack(anchor="w", padx=16, pady=(6, 0))
+        self._log_scroll = ctk.CTkScrollableFrame(log_strip, fg_color="transparent", height=36)
+        self._log_scroll.pack(fill="both", expand=True, padx=8, pady=(2, 4))
+
+        # Restore buffered log messages
+        for action_type, text in self._log_messages:
+            entry = LogEntry(self._log_scroll, action_type, text)
+            entry.pack(fill="x", padx=4, pady=2)
+        self.after(50, lambda: self._safe_scroll(self._log_scroll))
+
+        self._build_input_bar(self._content)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # MEMORY VIEW
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _build_memory(self):
+        self._build_header(self._content)
+        body = ctk.CTkScrollableFrame(self._content, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=30, pady=20)
+
+        ctk.CTkLabel(body, text="PERSONAL CONTEXT", font=ctk.CTkFont("Consolas", 10, "bold"),
+                     text_color=ACCENT).pack(anchor="w")
+        ctk.CTkLabel(body, text="What DODO remembers",
+                     font=ctk.CTkFont("Segoe UI", 22, "bold"),
+                     text_color=TEXT).pack(anchor="w", pady=(4, 16))
+
+        try:
+            from core.memory import load_facts
+            facts = load_facts()
+        except Exception:
+            facts = []
+
+        if not facts:
+            ctk.CTkLabel(body, text="No facts stored yet. Tell DODO something to remember!",
+                         text_color=MUTED, font=ctk.CTkFont("Segoe UI", 13)).pack(pady=30)
+        else:
+            for fact in facts:
+                row = ctk.CTkFrame(body, fg_color=SURFACE, corner_radius=10)
+                row.pack(fill="x", pady=3)
+                ctk.CTkLabel(row, text="◇", text_color=ACCENT,
+                             font=ctk.CTkFont("Segoe UI", 16)).pack(side="left", padx=(14, 8), pady=10)
+                ctk.CTkLabel(row, text=fact, text_color=TEXT, justify="left", anchor="w",
+                             wraplength=600, font=ctk.CTkFont("Segoe UI", 12)
+                ).pack(side="left", fill="x", expand=True, padx=(0, 14), pady=10)
+
+        self._build_input_bar(self._content)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SETTINGS VIEW
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _build_settings(self):
+        self._build_header(self._content)
+        body = ctk.CTkScrollableFrame(self._content, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=30, pady=20)
+
+        ctk.CTkLabel(body, text="CONTROL ROOM", font=ctk.CTkFont("Consolas", 10, "bold"),
+                     text_color=ACCENT).pack(anchor="w")
+        ctk.CTkLabel(body, text="Settings", font=ctk.CTkFont("Segoe UI", 22, "bold"),
+                     text_color=TEXT).pack(anchor="w", pady=(4, 16))
+
+        # ── General card ──────────────────────────────────────────────────────
+        card = ctk.CTkFrame(body, fg_color=SURFACE, corner_radius=14)
+        card.pack(fill="x", pady=(0, 14))
+        ctk.CTkLabel(card, text="GENERAL", font=ctk.CTkFont("Consolas", 10, "bold"),
+                     text_color=MUTED).pack(anchor="w", padx=18, pady=(14, 8))
+        self._s_name  = self._settings_entry(card, "Your name",  self._config.get("user_name", ""))
+        self._s_wake  = self._settings_entry(card, "Wake word",  self._config.get("wake_word", "dodo"))
+        self._s_hotkey= self._settings_entry(card, "Hotkey",     self._config.get("hotkey", "ctrl+alt+d"))
+
+        tog = ctk.CTkFrame(card, fg_color="transparent")
+        tog.pack(fill="x", padx=18, pady=(6, 14))
+        self._tog_mic = ToggleSwitch(tog, "Microphone",
+                                     self._config.get("mic_enabled", True), self._on_mic_toggle)
+        self._tog_mic.pack(side="left", padx=(0, 28))
+        self._tog_online = ToggleSwitch(tog, "Online mode",
+                                        self._config.get("online_mode", True), self._on_online_toggle)
+        self._tog_online.pack(side="left")
+
+        # ── AI Model card ─────────────────────────────────────────────────────
+        ai = ctk.CTkFrame(body, fg_color=SURFACE, corner_radius=14)
+        ai.pack(fill="x", pady=(0, 14))
+        ctk.CTkLabel(ai, text="AI MODEL", font=ctk.CTkFont("Consolas", 10, "bold"),
+                     text_color=MUTED).pack(anchor="w", padx=18, pady=(14, 8))
+
+        prov = ctk.CTkFrame(ai, fg_color="transparent")
+        prov.pack(fill="x", padx=18, pady=(0, 8))
+        self._provider_var = tk.StringVar(value=self._config.get("ai_provider", "groq"))
+        ctk.CTkRadioButton(prov, text="Gemini (Google)", variable=self._provider_var,
+                           value="gemini", text_color=TEXT, fg_color=ACCENT,
+                           hover_color=ACCENT).pack(side="left", padx=(0, 20))
+        ctk.CTkRadioButton(prov, text="Groq", variable=self._provider_var,
+                           value="groq", text_color=TEXT, fg_color=ACCENT,
+                           hover_color=ACCENT).pack(side="left")
+
+        self._s_gemini = self._settings_entry(ai, "Gemini API key",
+                                              self._config.get("gemini_api_key", ""), show="•")
+        self._s_groq   = self._settings_entry(ai, "Groq API key",
+                                              self._config.get("groq_api_key", ""), show="•")
+        ctk.CTkFrame(ai, height=8, fg_color="transparent").pack()
+
+        # Save
+        ctk.CTkButton(
+            body, text="Save settings", width=160, height=38, corner_radius=10,
+            fg_color=ACCENT, hover_color="#00b894", text_color=BG,
+            font=ctk.CTkFont("Segoe UI", 12, "bold"), command=self._save_settings,
+        ).pack(anchor="w", pady=(4, 20))
+
+    def _settings_entry(self, parent, label: str, value: str, show=None):
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill="x", padx=18, pady=(0, 6))
+        ctk.CTkLabel(row, text=label, width=130, anchor="w", text_color=MUTED,
+                     font=ctk.CTkFont("Segoe UI", 12)).pack(side="left")
+        e = ctk.CTkEntry(row, height=34, fg_color="#0d1117", border_color=SURFACE_ALT,
+                         text_color=TEXT, corner_radius=8)
+        if show:
+            e.configure(show=show)
+        e.insert(0, str(value))
+        e.pack(side="left", fill="x", expand=True)
+        return e
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PUBLIC API (called by main.py processing loop)
+    # ══════════════════════════════════════════════════════════════════════════
 
     def set_status(self, state: str):
-        """Update orb + status pill + mic button. Must be called on UI thread."""
-        self._orb.set_state(state)
-        label, color = self.STATUS_LABELS.get(state, ("● IDLE", ACCENT))
-        self._status_label.configure(text=label, text_color=color)
+        label, color = self.STATUS_LABELS.get(state, self.STATUS_LABELS["IDLE"])
+        try:
+            self._orb.set_state(state)
+        except Exception:
+            pass
+        try:
+            self._hero_status.configure(text=label, text_color=color)
+        except Exception:
+            pass
+        try:
+            self._header_status.configure(text=f"● {state.capitalize()}", text_color=color)
+        except Exception:
+            pass
+        try:
+            self._side_status.configure(text_color=color)
+        except Exception:
+            pass
         self._update_mic_btn(state)
 
     def add_chat(self, text: str, sender: str = "dodo"):
+        # Persist to buffer
+        self._chat_messages.append((text, sender))
+        # Keep buffer from growing forever (last 100 messages)
+        if len(self._chat_messages) > 100:
+            self._chat_messages = self._chat_messages[-100:]
+        # If chat view not active, switch to it
+        if self._chat_scroll is None:
+            self._show_view("chat")
+            return  # _build_chat_view already restored the message
         bubble = ChatBubble(self._chat_scroll, text, sender)
-        bubble.pack(fill="x", padx=6, pady=3)
-        self.after(50, lambda: self._chat_scroll._parent_canvas.yview_moveto(1.0))
+        bubble.pack(fill="x", padx=(80, 6) if sender == "user" else (6, 80), pady=4)
+        self.after(50, lambda: self._safe_scroll(self._chat_scroll))
 
     def add_log(self, action_type: str, text: str):
+        # Persist to buffer
+        self._log_messages.append((action_type, text))
+        if len(self._log_messages) > 50:
+            self._log_messages = self._log_messages[-50:]
+        if self._log_scroll is None:
+            return
         entry = LogEntry(self._log_scroll, action_type, text)
-        entry.pack(fill="x", padx=4, pady=1)
-        self.after(50, lambda: self._log_scroll._parent_canvas.yview_moveto(1.0))
+        entry.pack(fill="x", padx=4, pady=2)
+        self.after(50, lambda: self._safe_scroll(self._log_scroll))
 
     def ask_confirm(self, question: str) -> bool:
-        return tk.messagebox.askyesno("DODO — Confirm", question, parent=self)
+        return messagebox.askyesno("DODO — Confirm", question, parent=self)
 
     def set_ui_queue(self, q: queue.Queue):
         self._ui_queue = q
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Internal callbacks
-    # ═══════════════════════════════════════════════════════════════════════════
+    @staticmethod
+    def _safe_scroll(scrollable):
+        try:
+            scrollable._parent_canvas.yview_moveto(1.0)
+        except Exception:
+            pass
 
-    def _calibrate_mic(self):
-        if not self.voice_engine:
-            return
-        self._calib_label.configure(text="Calibrating… stay quiet")
-        def _run():
-            threshold = self.voice_engine.calibrate(duration=2.5)
-            self.after(0, lambda: self._calib_label.configure(
-                text=f"✓ {threshold:.4f}"
-            ))
-            self.after(0, lambda: self.add_log(
-                "system_command",
-                f"Mic calibrated — threshold: {threshold:.4f}"
-            ))
-        threading.Thread(target=_run, daemon=True).start()
+    # ══════════════════════════════════════════════════════════════════════════
+    # HANDLERS
+    # ══════════════════════════════════════════════════════════════════════════
 
-    def _test_voice(self):
-        from core import speech
-        self._calib_label.configure(text="Speaking…")
-        def _done():
-            self.after(0, lambda: self._calib_label.configure(text=""))
-        speech.speak(
-            "Hi! I am DODO, your AI desktop assistant. Voice is working perfectly.",
-            on_done=_done
-        )
-
-    def _inject_command(self, cmd: str):
-        """Push a text command as if spoken — shows in chat and processes it."""
-        self.command_queue.put(cmd)
+    def _inject_command(self, command: str):
+        self.command_queue.put(command)
 
     def _on_text_submit(self, event=None):
-        """Send the typed text as a command."""
-        text = self._input_box.get().strip()
+        if self._input_box is None:
+            return "break"
+        text = self._input_box.get("1.0", "end-1c").strip()
         if text:
-            self._input_box.delete(0, "end")
+            self._input_box.delete("1.0", "end")
             self.command_queue.put(text)
+        return "break"
 
-    # ── Mic button ─────────────────────────────────────────────────────────────
+    def _on_enter_key(self, event=None):
+        """Enter alone → send message."""
+        self._on_text_submit()
+        return "break"  # prevent default newline
+
+    def _on_shift_enter(self, event=None):
+        """Shift+Enter → insert newline."""
+        if self._input_box:
+            self._input_box.insert("end", "\n")
+        return "break"
 
     def _on_mic_btn_click(self):
-        """Click = skip wake word, go straight to LISTENING for one command."""
         if not self.voice_engine:
             return
         if not self.voice_engine.mic_enabled:
-            # Flash red to signal mic is disabled
-            self._mic_btn.configure(fg_color=DANGER, text_color=TEXT_BRIGHT)
-            self.after(600, lambda: self._mic_btn.configure(
-                fg_color="#1e1e3e", text_color=TEXT_DIM
-            ))
+            try:
+                self._mic_btn.configure(fg_color=DANGER)
+                self.after(600, lambda: self._mic_btn.configure(fg_color=SURFACE_ALT))
+            except Exception:
+                pass
             return
-        if self.voice_engine.state == "LISTENING":
-            return   # already listening
-        self.voice_engine.listen_once()
+        if self.voice_engine.state != "LISTENING":
+            self.voice_engine.listen_once()
 
     def _update_mic_btn(self, state: str):
-        """Sync mic button appearance to current voice engine state."""
-        if not hasattr(self, "_mic_btn"):
-            return
-        mic_on = (self.voice_engine.mic_enabled if self.voice_engine else True)
+        try:
+            if state == "LISTENING":
+                self._mic_btn.configure(text="⏹", fg_color=DANGER, text_color=TEXT)
+            else:
+                self._mic_btn.configure(text="🎤", fg_color=SURFACE_ALT, text_color=ACCENT)
+        except Exception:
+            pass
 
-        if state == "LISTENING":
-            self._mic_btn.configure(
-                fg_color="#cc1a3a", hover_color="#aa1530",
-                text_color=TEXT_BRIGHT, text="🔴"
-            )
-            self._mic_btn_listening = True
-            self._pulse_mic_btn()
-        elif state in ("PROCESSING", "SPEAKING"):
-            self._mic_btn.configure(
-                fg_color="#2a1a4a", hover_color="#2a1a4a",
-                text_color=ACCENT2, text="🎤"
-            )
-            self._mic_btn_listening = False
-        elif not mic_on or state == "MIC_ERROR":
-            self._mic_btn.configure(
-                fg_color="#1a1a1a", hover_color="#1a1a1a",
-                text_color="#444444", text="🎤"
-            )
-            self._mic_btn_listening = False
-        else:
-            # IDLE / CALIBRATING
-            self._mic_btn.configure(
-                fg_color="#1e1e3e", hover_color="#2a2a5a",
-                text_color=ACCENT, text="🎤"
-            )
-            self._mic_btn_listening = False
-
-    def _pulse_mic_btn(self):
-        """Alternating pulse animation while LISTENING."""
-        if not self._mic_btn_listening:
-            return
-        current = self._mic_btn.cget("fg_color")
-        next_c  = "#aa1530" if current == "#cc1a3a" else "#cc1a3a"
-        self._mic_btn.configure(fg_color=next_c)
-        self.after(400, self._pulse_mic_btn)
+    def _on_model_change(self, choice: str):
+        self._config["ai_provider"] = "gemini" if "Gemini" in choice else "groq"
+        self._save_config_file()
+        try:
+            from core.agent import reset_client
+            reset_client()
+        except Exception:
+            pass
 
     def _on_mic_toggle(self, enabled: bool):
         if self.voice_engine:
             self.voice_engine.set_mic_enabled(enabled)
-        self._update_mic_btn("IDLE")
+        self._config["mic_enabled"] = enabled
 
     def _on_online_toggle(self, enabled: bool):
         if self.voice_engine:
             self.voice_engine.set_online_mode(enabled)
+        self._config["online_mode"] = enabled
 
-    # ── Queue polling ──────────────────────────────────────────────────────────
-
-    def _poll_queue(self):
-        """Drain the UI event queue on the main thread (thread-safe)."""
+    def _save_settings(self):
+        self._config["user_name"] = self._s_name.get().strip() or "Boss"
+        self._config["wake_word"] = self._s_wake.get().strip() or "dodo"
+        self._config["hotkey"]    = self._s_hotkey.get().strip() or "ctrl+alt+d"
+        self._config["ai_provider"] = self._provider_var.get()
+        gk = self._s_gemini.get().strip()
+        rk = self._s_groq.get().strip()
+        if gk:
+            self._config["gemini_api_key"] = gk
+        if rk:
+            self._config["groq_api_key"] = rk
+        self._save_config_file()
+        self.user_name = self._config["user_name"]
         try:
-            while True:
-                try:
-                    event = self._ui_queue.get_nowait()
-                except queue.Empty:
-                    break
-
-                event_type = event.get("type")
-                try:
-                    if event_type == "status":
-                        self.set_status(event["state"])
-                    elif event_type == "chat":
-                        self.add_chat(event["text"], event.get("sender", "dodo"))
-                    elif event_type == "log":
-                        self.add_log(event.get("action_type", "unknown"), event["text"])
-                except Exception:
-                    pass
+            from core.agent import reset_client
+            reset_client()
         except Exception:
             pass
-        self.after(80, self._poll_queue)   # poll every 80ms (was 100ms)
+        self._show_view("settings")
 
-    # ── Drag ──────────────────────────────────────────────────────────────────
-    def _drag_start(self, event):
-        self._drag_x = event.x_root - self.winfo_x()
-        self._drag_y = event.y_root - self.winfo_y()
+    def _save_config_file(self):
+        try:
+            from core.memory import CONFIG_PATH
+            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                json.dump(self._config, f, indent=4)
+        except Exception as e:
+            print(f"[DODO] Config save error: {e}")
 
-    def _drag_motion(self, event):
-        self.geometry(f"+{event.x_root - self._drag_x}+{event.y_root - self._drag_y}")
+    # ══════════════════════════════════════════════════════════════════════════
+    # UI QUEUE POLLING
+    # ══════════════════════════════════════════════════════════════════════════
 
-    # ── System tray ───────────────────────────────────────────────────────────
+    def _poll_queue(self):
+        try:
+            while True:
+                event = self._ui_queue.get_nowait()
+                t = event.get("type")
+                if t == "status":
+                    self.set_status(event["state"])
+                elif t == "chat":
+                    self.add_chat(event["text"], event.get("sender", "dodo"))
+                elif t == "log":
+                    self.add_log(event.get("action_type", "unknown"), event["text"])
+        except queue.Empty:
+            pass
+        except Exception:
+            pass
+        self.after(80, self._poll_queue)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SYSTEM TRAY + HOTKEYS
+    # ══════════════════════════════════════════════════════════════════════════
+
     def _start_tray(self):
         img  = self._make_tray_icon()
         menu = pystray.Menu(
             pystray.MenuItem("Show DODO", self._tray_show, default=True),
-            pystray.MenuItem("Exit",      self._tray_exit),
+            pystray.MenuItem("Exit", self._tray_exit),
         )
         self._tray_icon = pystray.Icon("DODO", img, "DODO", menu)
         threading.Thread(target=self._tray_icon.run, daemon=True).start()
 
-    def _make_tray_icon(self) -> Image.Image:
-        img  = Image.new("RGB", (64, 64), "#0d0d1a")
-        draw = ImageDraw.Draw(img)
-        draw.ellipse([8, 8, 56, 56], fill="#4f9fff")
-        draw.ellipse([20, 20, 44, 44], fill="#0d0d1a")
-        draw.ellipse([26, 26, 38, 38], fill="#9b4fff")
+    def _make_tray_icon(self):
+        img = Image.new("RGB", (64, 64), BG)
+        d   = ImageDraw.Draw(img)
+        d.ellipse([8, 8, 56, 56], fill=ACCENT)
+        d.ellipse([20, 20, 44, 44], fill=BG)
+        d.ellipse([27, 27, 37, 37], fill=GOLD)
         return img
 
     def _minimize_to_tray(self):
@@ -517,8 +652,5 @@ class ControlPanel(ctk.CTk):
         self.after(0, self._tray_show)
 
     def _get_icon_path(self):
-        import os
-        return os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "assets", "dodo_icon.ico"
-        )
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "assets", "dodo_icon.ico")

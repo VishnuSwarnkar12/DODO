@@ -11,6 +11,7 @@
     "mic_enabled": true,
     "autonomy_level": 2,
     "user_name": "YourName",
+    "ai_provider": "groq",
     "window": {
         "width": 420,
         "height": 700,
@@ -25,6 +26,8 @@
     "stt_engine": "whisper",
     "whisper_model": "base",
     "groq_api_key": "YOUR_GROQ_API_KEY_HERE",
+    "gemini_api_key": "YOUR_GEMINI_API_KEY_HERE",
+    "gemini_model": "gemini-2.0-flash",
     "openai_base_url": "https://api.groq.com/openai/v1",
     "groq_model": "openai/gpt-oss-120b",
     "openai_vision_model": "meta-llama/llama-4-scout-17b-16e-instruct",

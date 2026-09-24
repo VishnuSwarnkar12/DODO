@@ -1,6 +1,6 @@
 """
 DODO — ui/widgets.py
-Custom reusable UI components for the control panel.
+Custom reusable UI components — teal dark theme.
 """
 
 import customtkinter as ctk
@@ -12,55 +12,51 @@ import time
 # ── Pulsing Orb ───────────────────────────────────────────────────────────────
 
 class PulsingOrb(tk.Canvas):
-    """Animated orb that pulses to reflect DODO's state."""
+    """Animated orb that pulses to reflect DODO's state — teal palette."""
 
     COLORS = {
-        "IDLE":        ("#1a1a3e", "#2a2a6e", "#4f9fff"),
-        "LISTENING":   ("#002244", "#004488", "#00aaff"),
+        "IDLE":        ("#0a1a1a", "#0d3d35", "#00d4aa"),
+        "LISTENING":   ("#001a2a", "#003355", "#00aaff"),
         "PROCESSING":  ("#1a0044", "#3300aa", "#9b4fff"),
-        "SPEAKING":    ("#1a0033", "#440066", "#cc44ff"),
+        "SPEAKING":    ("#0a2a2a", "#0d4d40", "#00ffcc"),
         "CALIBRATING": ("#2a1a00", "#664400", "#ffaa00"),
         "MIC_ERROR":   ("#330000", "#660000", "#ff4444"),
     }
 
     def __init__(self, parent, size=180, **kwargs):
+        bg = kwargs.pop("bg", "#0a0e14")
         super().__init__(parent, width=size, height=size,
-                         bg="#0d0d1a", highlightthickness=0, **kwargs)
+                         bg=bg, highlightthickness=0, **kwargs)
         self.size       = size
         self.cx         = size // 2
         self.cy         = size // 2
         self.state_name = "IDLE"
-        self._rings     = []
         self._tick      = 0
-        self._animating  = True
+        self._animating = True
         self._draw_frame()
         self._animate()
 
     def set_state(self, state: str):
         self.state_name = state
-        self._tick      = 0  # reset animation phase
+        self._tick = 0
 
     def _animate(self):
         if not self._animating:
             return
-        self._tick  += 1
+        self._tick += 1
         self._draw_frame()
-        self.after(40, self._animate)   # ~25 fps
+        self.after(40, self._animate)
 
     def _draw_frame(self):
         self.delete("all")
         colors = self.COLORS.get(self.state_name, self.COLORS["IDLE"])
         t      = self._tick
-        mode   = self.state_name
-
-        # Speed of pulse per state
         speeds = {"IDLE": 0.03, "LISTENING": 0.12, "PROCESSING": 0.10,
                   "SPEAKING": 0.08, "MIC_ERROR": 0.15}
-        speed  = speeds.get(mode, 0.04)
+        speed  = speeds.get(self.state_name, 0.04)
         phase  = math.sin(t * speed)
 
-        # Background glow rings (ripple outward)
-        n_rings = 3 if mode in ("LISTENING", "PROCESSING") else 2
+        n_rings = 3 if self.state_name in ("LISTENING", "PROCESSING") else 2
         for i in range(n_rings):
             ring_phase = math.sin(t * speed + i * 1.5)
             r = self.cx * (0.55 + 0.18 * i + 0.05 * ring_phase)
@@ -68,15 +64,12 @@ class PulsingOrb(tk.Canvas):
             color = self._blend(colors[0], colors[1], alpha_factor)
             self._draw_circle(self.cx, self.cy, r, fill=color, outline="")
 
-        # Core orb
         core_r = self.cx * (0.42 + 0.04 * phase)
         self._draw_circle(self.cx, self.cy, core_r, fill=colors[1], outline="")
 
-        # Inner bright spot
         spot_r = self.cx * (0.28 + 0.02 * phase)
         self._draw_circle(self.cx, self.cy, spot_r, fill=colors[2], outline="")
 
-        # Highlight reflection (subtle light spot — no alpha in tkinter)
         self._draw_circle(
             self.cx - core_r * 0.3, self.cy - core_r * 0.3,
             core_r * 0.18, fill="#aaccff", outline=""
@@ -87,7 +80,6 @@ class PulsingOrb(tk.Canvas):
 
     @staticmethod
     def _blend(c1: str, c2: str, t: float) -> str:
-        """Blend two hex colours by factor t ∈ [0,1]."""
         t  = max(0.0, min(1.0, t))
         r1, g1, b1 = int(c1[1:3],16), int(c1[3:5],16), int(c1[5:7],16)
         r2, g2, b2 = int(c2[1:3],16), int(c2[3:5],16), int(c2[5:7],16)
@@ -103,57 +95,67 @@ class PulsingOrb(tk.Canvas):
 # ── Chat Bubble ───────────────────────────────────────────────────────────────
 
 class ChatBubble(ctk.CTkFrame):
-    """A single message in the chat log."""
+    """A chat message bubble — DODO left (dark) / user right (blue)."""
 
     def __init__(self, parent, text: str, sender: str = "dodo", **kwargs):
-        # sender: 'dodo' | 'user'
         is_dodo = sender == "dodo"
-        bg      = "#1e1e3a" if is_dodo else "#162032"
-        super().__init__(parent, fg_color=bg, corner_radius=12, **kwargs)
+        bg = "#1a1f2e" if is_dodo else "#1a3a5c"
+        super().__init__(parent, fg_color=bg, corner_radius=14, **kwargs)
 
-        prefix_color = "#4f9fff" if is_dodo else "#00e5a0"
-        prefix_text  = "⬡ DODO" if is_dodo else "👤 You"
+        inner = ctk.CTkFrame(self, fg_color="transparent")
+        inner.pack(fill="x", padx=10, pady=8)
 
+        if is_dodo:
+            ctk.CTkLabel(
+                inner, text="◈", font=ctk.CTkFont("Segoe UI", 18),
+                text_color="#00d4aa", width=24
+            ).pack(side="left", anchor="n", padx=(0, 8), pady=(2, 0))
+
+        text_col = ctk.CTkFrame(inner, fg_color="transparent")
+        text_col.pack(side="left", fill="x", expand=True)
+
+        prefix_color = "#00d4aa" if is_dodo else "#5a9fd4"
+        prefix_text  = "DODO" if is_dodo else "You"
         ctk.CTkLabel(
-            self, text=prefix_text,
-            font=ctk.CTkFont("Consolas", 11, "bold"),
+            text_col, text=prefix_text,
+            font=ctk.CTkFont("Consolas", 10, "bold"),
             text_color=prefix_color
-        ).pack(anchor="w", padx=12, pady=(8, 0))
+        ).pack(anchor="w")
 
         ctk.CTkLabel(
-            self, text=text, wraplength=340,
+            text_col, text=text, wraplength=420,
             font=ctk.CTkFont("Segoe UI", 13),
-            text_color="#d0d8f0", justify="left"
-        ).pack(anchor="w", padx=12, pady=(2, 10))
+            text_color="#e0e6f0", justify="left"
+        ).pack(anchor="w", pady=(2, 0))
 
 
-# ── Log Entry ──────────────────────────────────────────────────────────────────
+# ── Log Entry ─────────────────────────────────────────────────────────────────
 
 class LogEntry(ctk.CTkFrame):
-    """One line in the action log."""
+    """One line in the activity log — teal accents."""
 
-    ICON = {"system_command": "*", "internet_action": "@",
-             "file_operation": "F", "device_control": "D",
-             "small_talk": ">", "ollama_chat": ">", "unknown": "?"}
+    ICON = {
+        "system_command": "⚡", "internet_action": "🌐",
+        "file_operation": "📁", "device_control": "🔧",
+        "small_talk": "💬", "agent": "🤖",
+        "reminder": "⏰", "unknown": "▸",
+    }
 
     def __init__(self, parent, action_type: str, text: str, **kwargs):
-        super().__init__(parent, fg_color="#111128", corner_radius=6, **kwargs)
+        super().__init__(parent, fg_color="#151b25", corner_radius=6, **kwargs)
         icon = self.ICON.get(action_type, "▸")
-        ts   = time.strftime("%H:%M:%S")
-
+        ts   = time.strftime("%H:%M")
         ctk.CTkLabel(
-            self,
-            text=f"{icon}  {ts}  {text}",
+            self, text=f"{icon}  {ts}  {text}",
             font=ctk.CTkFont("Consolas", 11),
-            text_color="#7888bb",
-            anchor="w"
+            text_color="#5a6580", anchor="w"
         ).pack(side="left", padx=10, pady=4)
 
 
-# ── Toggle Switch ──────────────────────────────────────────────────────────────
+# ── Toggle Switch ─────────────────────────────────────────────────────────────
 
 class ToggleSwitch(ctk.CTkFrame):
-    """ON/OFF toggle with label."""
+    """ON/OFF toggle with label — teal theme."""
 
     def __init__(self, parent, label: str, initial: bool = True,
                  on_change=None, **kwargs):
@@ -163,17 +165,16 @@ class ToggleSwitch(ctk.CTkFrame):
         ctk.CTkLabel(
             self, text=label,
             font=ctk.CTkFont("Segoe UI", 12),
-            text_color="#8899cc"
+            text_color="#5a6580"
         ).pack(side="left", padx=(0, 8))
 
         self._switch = ctk.CTkSwitch(
-            self, text="",
-            width=44, height=22,
+            self, text="", width=44, height=22,
             command=self._changed,
-            fg_color="#2a2a4a",
-            progress_color="#4f9fff",
+            fg_color="#1c2433",
+            progress_color="#00d4aa",
             button_color="#ffffff",
-            button_hover_color="#ccddff",
+            button_hover_color="#ccffee",
         )
         self._switch.pack(side="left")
         if initial:

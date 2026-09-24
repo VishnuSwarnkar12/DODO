@@ -725,18 +725,32 @@ def _get_client() -> OpenAI:
     global _client
     if _client is None:
         cfg = load_config()
-        key = cfg.get("groq_api_key", "")
-        base_url = cfg.get("openai_base_url", "https://api.groq.com/openai/v1")
+        provider = cfg.get('ai_provider', 'groq')
+        if provider == 'gemini':
+            key = cfg.get('gemini_api_key', '')
+            base_url = 'https://generativelanguage.googleapis.com/v1beta/openai/'
+        else:
+            key = cfg.get('groq_api_key', '')
+            base_url = cfg.get('openai_base_url', 'https://api.groq.com/openai/v1')
         if base_url and not base_url.startswith('https://'):
             base_url = base_url.replace('http://', 'https://', 1)
         if not key:
-            raise RuntimeError("Groq API key missing from config.json.")
+            raise RuntimeError(f'{provider.capitalize()} API key missing from config.json.')
         _client = OpenAI(api_key=key, base_url=base_url)
     return _client
 
 
 def _get_model() -> str:
-    return load_config().get("groq_model", "qwen/qwen3.8-27b")
+    cfg = load_config()
+    provider = cfg.get('ai_provider', 'groq')
+    if provider == 'gemini':
+        return cfg.get('gemini_model', 'gemini-2.0-flash')
+    return cfg.get('groq_model', 'openai/gpt-oss-120b')
+
+def reset_client():
+    """Reset the API client so it reconnects with new config on next call."""
+    global _client
+    _client = None
 
 
 # ── Main agent entry point ────────────────────────────────────────────────────
@@ -765,6 +779,20 @@ def process(user_message: str) -> str:
 
     # Log the command
     log_command(user_message, "agent")
+
+    # ── Offline-first: if online_mode is disabled, use local brain ─────────
+    cfg = load_config()
+    if not cfg.get("online_mode", True):
+        reply = _try_offline(user_message)
+        if reply:
+            _history.append({"role": "assistant", "content": reply})
+            save_chat_history(_history)
+            return reply
+        # If local brain can't handle it, tell user
+        fallback = "⚠️ Online mode is OFF. I can handle: time, date, volume, open apps, lock screen, screenshots, reminders. Turn Online mode ON in Settings for full power."
+        _history.append({"role": "assistant", "content": fallback})
+        save_chat_history(_history)
+        return fallback
 
     # Build messages for the API call
     messages = [{"role": "system", "content": system}] + _history
@@ -872,18 +900,26 @@ def process(user_message: str) -> str:
             "name or service", "socket", "refused", "ssl"
         ])
         if is_offline:
-            try:
-                from core.brain import classify
-                from core.executor import execute
-                intent, entities = classify(user_message)
-                if intent and intent != "ollama_chat":
-                    result = execute(intent, entities, user_message)
-                    return f"[Offline mode] {result}"
-            except Exception:
-                pass
+            reply = _try_offline(user_message)
+            if reply:
+                return reply
             return "⚠️ No internet. I can still do local commands: volume, open apps, lock screen, reminders, time."
 
         return f"Something went wrong: {err[:150]}"
+
+
+def _try_offline(user_message: str) -> str | None:
+    """Try to handle the command locally using brain.classify + executor."""
+    try:
+        from core.brain import classify
+        from core.executor import execute
+        result = classify(user_message)
+        intent = result.get("intent", "unknown")
+        if intent and intent not in ("unknown", "ollama_chat"):
+            return f"[Offline] {execute(result)}"
+    except Exception:
+        pass
+    return None
 
 
 def clear_history():
