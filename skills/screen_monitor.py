@@ -88,10 +88,21 @@ def _get_vision_client():
     """Create an OpenAI client pointed at Groq for vision calls."""
     from openai import OpenAI
     cfg = load_config()
-    key = cfg.get("groq_api_key", "")
-    base_url = cfg.get("openai_base_url", "https://api.groq.com/openai/v1")
+    # NVIDIA is the primary vision provider (Kimi K3 supports images)
+    nvidia_key = cfg.get("nvidia_api_key", "")
+    if nvidia_key:
+        return OpenAI(api_key=nvidia_key,
+                      base_url="https://integrate.api.nvidia.com/v1")
+    # Fallback to whatever the user has configured (text-only analysis)
+    provider = cfg.get("ai_provider", "groq")
+    if provider == "gemini":
+        key = cfg.get("gemini_api_key", "")
+        base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    else:
+        key = cfg.get("groq_api_key", "")
+        base_url = cfg.get("openai_base_url", "https://api.groq.com/openai/v1")
     if not key:
-        raise RuntimeError("Groq API key missing from config.json.")
+        raise RuntimeError("No API key configured for vision.")
     return OpenAI(api_key=key, base_url=base_url)
 
 
@@ -116,23 +127,27 @@ def analyze_screen(question: str = "What do you see on the screen?") -> str:
     # ── Strategy 1: Read the VS Code file directly ────────────────────────
     editor_info = read_active_editor()
     if "error" not in editor_info:
-        # Got the file — send code to text LLM (no vision model needed)
         filepath = editor_info["filepath"]
         content = editor_info["content"]
         language = editor_info["language"]
         filename = editor_info["filename"]
         lines = editor_info["lines"]
 
-        # Truncate very long files to avoid token limits
         if len(content) > 8000:
             content = content[:8000] + "\n\n... (file truncated at 8000 chars)"
 
-        # Also run a quick syntax check
         syntax_result = check_syntax(filepath)
 
         try:
             client = _get_vision_client()
-            model = cfg.get("groq_model", "openai/gpt-oss-120b")
+            # Use the configured text model for code analysis
+            provider = cfg.get("ai_provider", "groq")
+            if provider == "nvidia":
+                model = cfg.get("nvidia_model", "moonshotai/kimi-k3")
+            elif provider == "gemini":
+                model = cfg.get("gemini_model", "gemini-2.0-flash")
+            else:
+                model = cfg.get("groq_model", "openai/gpt-oss-120b")
 
             response = client.chat.completions.create(
                 model=model,
@@ -163,24 +178,31 @@ def analyze_screen(question: str = "What do you see on the screen?") -> str:
         except Exception as e:
             return f"I can see you're editing {filename} but hit an error analyzing it: {str(e)[:100]}"
 
-    # ── Strategy 2: Screenshot + vision model ─────────────────────────────
+    # ── Strategy 2: Screenshot + NVIDIA Kimi K3 vision model ──────────────
     try:
         img_b64 = capture_screen()
 
-        vision_model = cfg.get(
-            "openai_vision_model",
-            "meta-llama/llama-4-scout-17b-16e-instruct"
+        # Use NVIDIA Kimi K3 for vision (it supports images)
+        nvidia_key = cfg.get("nvidia_api_key", "")
+        if not nvidia_key:
+            _cleanup_temp()
+            return ("⚠️ No vision model available. Add your NVIDIA API key in Settings "
+                    "to enable screen analysis. Get one free at build.nvidia.com")
+
+        from openai import OpenAI
+        vision_client = OpenAI(
+            api_key=nvidia_key,
+            base_url="https://integrate.api.nvidia.com/v1"
         )
+        vision_model = cfg.get("nvidia_model", "moonshotai/kimi-k3")
 
-        client = _get_vision_client()
-
-        response = client.chat.completions.create(
+        response = vision_client.chat.completions.create(
             model=vision_model,
             messages=[{
                 "role": "user",
                 "content": [
                     {"type": "text", "text": (
-                        "You are DODO, an AI coding assistant looking at the user's screen. "
+                        "You are DODO, an AI assistant looking at the user's screen. "
                         "Focus on code, errors, file names, and anything relevant. "
                         "Be concise and actionable.\n\n"
                         f"User's question: {question}"
@@ -190,7 +212,8 @@ def analyze_screen(question: str = "What do you see on the screen?") -> str:
                     }}
                 ]
             }],
-            max_tokens=1024,
+            max_tokens=2048,
+            temperature=0.3,
         )
 
         _cleanup_temp()

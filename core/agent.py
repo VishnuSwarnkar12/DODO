@@ -726,7 +726,10 @@ def _get_client() -> OpenAI:
     if _client is None:
         cfg = load_config()
         provider = cfg.get('ai_provider', 'groq')
-        if provider == 'gemini':
+        if provider == 'nvidia':
+            key = cfg.get('nvidia_api_key', '')
+            base_url = 'https://integrate.api.nvidia.com/v1'
+        elif provider == 'gemini':
             key = cfg.get('gemini_api_key', '')
             base_url = 'https://generativelanguage.googleapis.com/v1beta/openai/'
         else:
@@ -743,6 +746,8 @@ def _get_client() -> OpenAI:
 def _get_model() -> str:
     cfg = load_config()
     provider = cfg.get('ai_provider', 'groq')
+    if provider == 'nvidia':
+        return cfg.get('nvidia_model', 'moonshotai/kimi-k3')
     if provider == 'gemini':
         return cfg.get('gemini_model', 'gemini-2.0-flash')
     return cfg.get('groq_model', 'openai/gpt-oss-120b')

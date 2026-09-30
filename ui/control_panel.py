@@ -182,8 +182,9 @@ class ControlPanel(ctk.CTk):
         )
         self._header_status.pack(side="left")
         # Model selector
-        models = ["Gemini 2.0 Flash", "Groq GPT-OSS-120B"]
-        current = "Gemini 2.0 Flash" if self._config.get("ai_provider") == "gemini" else "Groq GPT-OSS-120B"
+        models = ["Gemini 2.0 Flash", "Groq GPT-OSS-120B", "NVIDIA Kimi K3"]
+        _provider_display = {"nvidia": "NVIDIA Kimi K3", "gemini": "Gemini 2.0 Flash"}
+        current = _provider_display.get(self._config.get("ai_provider"), "Groq GPT-OSS-120B")
         sel = ctk.CTkOptionMenu(
             hdr, values=models, fg_color=SURFACE_ALT, button_color=SURFACE_ALT,
             button_hover_color="#253040", dropdown_fg_color=SURFACE,
@@ -403,16 +404,23 @@ class ControlPanel(ctk.CTk):
         self._provider_var = tk.StringVar(value=self._config.get("ai_provider", "groq"))
         ctk.CTkRadioButton(prov, text="Gemini (Google)", variable=self._provider_var,
                            value="gemini", text_color=TEXT, fg_color=ACCENT,
-                           hover_color=ACCENT).pack(side="left", padx=(0, 20))
+                           hover_color=ACCENT).pack(side="left", padx=(0, 16))
         ctk.CTkRadioButton(prov, text="Groq", variable=self._provider_var,
                            value="groq", text_color=TEXT, fg_color=ACCENT,
+                           hover_color=ACCENT).pack(side="left", padx=(0, 16))
+        ctk.CTkRadioButton(prov, text="NVIDIA (Kimi K3)", variable=self._provider_var,
+                           value="nvidia", text_color=TEXT, fg_color=ACCENT,
                            hover_color=ACCENT).pack(side="left")
 
         self._s_gemini = self._settings_entry(ai, "Gemini API key",
                                               self._config.get("gemini_api_key", ""), show="•")
         self._s_groq   = self._settings_entry(ai, "Groq API key",
                                               self._config.get("groq_api_key", ""), show="•")
-        ctk.CTkFrame(ai, height=8, fg_color="transparent").pack()
+        self._s_nvidia = self._settings_entry(ai, "NVIDIA API key",
+                                              self._config.get("nvidia_api_key", ""), show="•")
+        ctk.CTkLabel(ai, text="💡 NVIDIA key enables vision (screen analysis)",
+                     font=ctk.CTkFont("Segoe UI", 10), text_color=MUTED
+                     ).pack(anchor="w", padx=18, pady=(2, 8))
 
         # Save
         ctk.CTkButton(
@@ -546,7 +554,12 @@ class ControlPanel(ctk.CTk):
             pass
 
     def _on_model_change(self, choice: str):
-        self._config["ai_provider"] = "gemini" if "Gemini" in choice else "groq"
+        if "NVIDIA" in choice or "Kimi" in choice:
+            self._config["ai_provider"] = "nvidia"
+        elif "Gemini" in choice:
+            self._config["ai_provider"] = "gemini"
+        else:
+            self._config["ai_provider"] = "groq"
         self._save_config_file()
         try:
             from core.agent import reset_client
@@ -571,10 +584,13 @@ class ControlPanel(ctk.CTk):
         self._config["ai_provider"] = self._provider_var.get()
         gk = self._s_gemini.get().strip()
         rk = self._s_groq.get().strip()
+        nk = self._s_nvidia.get().strip()
         if gk:
             self._config["gemini_api_key"] = gk
         if rk:
             self._config["groq_api_key"] = rk
+        if nk:
+            self._config["nvidia_api_key"] = nk
         self._save_config_file()
         self.user_name = self._config["user_name"]
         try:
