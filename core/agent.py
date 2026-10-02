@@ -749,7 +749,7 @@ def _get_model() -> str:
     if provider == 'nvidia':
         return cfg.get('nvidia_model', 'moonshotai/kimi-k3')
     if provider == 'gemini':
-        return cfg.get('gemini_model', 'gemini-2.0-flash')
+        return cfg.get('gemini_model', 'gemini-3.8-flash')
     return cfg.get('groq_model', 'openai/gpt-oss-120b')
 
 def reset_client():

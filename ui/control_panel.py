@@ -182,8 +182,8 @@ class ControlPanel(ctk.CTk):
         )
         self._header_status.pack(side="left")
         # Model selector
-        models = ["Gemini 2.0 Flash", "Groq GPT-OSS-120B", "NVIDIA Kimi K3"]
-        _provider_display = {"nvidia": "NVIDIA Kimi K3", "gemini": "Gemini 2.0 Flash"}
+        models = ["Gemini 3.8 Flash", "Groq GPT-OSS-120B", "NVIDIA Kimi K3"]
+        _provider_display = {"nvidia": "NVIDIA Kimi K3", "gemini": "Gemini 3.8 Flash"}
         current = _provider_display.get(self._config.get("ai_provider"), "Groq GPT-OSS-120B")
         sel = ctk.CTkOptionMenu(
             hdr, values=models, fg_color=SURFACE_ALT, button_color=SURFACE_ALT,

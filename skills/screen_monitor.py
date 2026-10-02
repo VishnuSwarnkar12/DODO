@@ -88,19 +88,20 @@ def _get_vision_client():
     """Create an OpenAI client pointed at Groq for vision calls."""
     from openai import OpenAI
     cfg = load_config()
-    # NVIDIA is the primary vision provider (Kimi K3 supports images)
+    # Gemini is the primary vision provider (3.8 Flash supports images, fast & free)
+    gemini_key = cfg.get("gemini_api_key", "")
+    if gemini_key:
+        return OpenAI(api_key=gemini_key,
+                      base_url="https://generativelanguage.googleapis.com/v1beta/openai/")
+    # NVIDIA fallback (Kimi K3 supports images but has cold start issues)
     nvidia_key = cfg.get("nvidia_api_key", "")
     if nvidia_key:
         return OpenAI(api_key=nvidia_key,
                       base_url="https://integrate.api.nvidia.com/v1")
-    # Fallback to whatever the user has configured (text-only analysis)
+    # Last resort: whatever is configured
     provider = cfg.get("ai_provider", "groq")
-    if provider == "gemini":
-        key = cfg.get("gemini_api_key", "")
-        base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
-    else:
-        key = cfg.get("groq_api_key", "")
-        base_url = cfg.get("openai_base_url", "https://api.groq.com/openai/v1")
+    key = cfg.get("groq_api_key", "")
+    base_url = cfg.get("openai_base_url", "https://api.groq.com/openai/v1")
     if not key:
         raise RuntimeError("No API key configured for vision.")
     return OpenAI(api_key=key, base_url=base_url)
@@ -145,7 +146,7 @@ def analyze_screen(question: str = "What do you see on the screen?") -> str:
             if provider == "nvidia":
                 model = cfg.get("nvidia_model", "moonshotai/kimi-k3")
             elif provider == "gemini":
-                model = cfg.get("gemini_model", "gemini-2.0-flash")
+                model = cfg.get("gemini_model", "gemini-3.8-flash")
             else:
                 model = cfg.get("groq_model", "openai/gpt-oss-120b")
 
@@ -178,23 +179,37 @@ def analyze_screen(question: str = "What do you see on the screen?") -> str:
         except Exception as e:
             return f"I can see you're editing {filename} but hit an error analyzing it: {str(e)[:100]}"
 
-    # ── Strategy 2: Screenshot + NVIDIA Kimi K3 vision model ──────────────
+    # ── Strategy 2: Screenshot + vision model (Gemini > NVIDIA > Groq) ─────
     try:
         img_b64 = capture_screen()
 
-        # Use NVIDIA Kimi K3 for vision (it supports images)
-        nvidia_key = cfg.get("nvidia_api_key", "")
-        if not nvidia_key:
-            _cleanup_temp()
-            return ("⚠️ No vision model available. Add your NVIDIA API key in Settings "
-                    "to enable screen analysis. Get one free at build.nvidia.com")
+        # Compress: resize + JPEG for faster upload
+        try:
+            from PIL import Image
+            import io, base64
+            raw_bytes = base64.b64decode(img_b64)
+            img = Image.open(io.BytesIO(raw_bytes))
+            max_dim = 768
+            ratio = min(max_dim / img.size[0], max_dim / img.size[1])
+            if ratio < 1:
+                img = img.resize((int(img.size[0]*ratio), int(img.size[1]*ratio)), Image.LANCZOS)
+            buf = io.BytesIO()
+            img.convert("RGB").save(buf, format="JPEG", quality=75)
+            img_b64 = base64.b64encode(buf.getvalue()).decode()
+            mime = "image/jpeg"
+        except Exception:
+            mime = "image/png"  # fallback to raw screenshot
 
-        from openai import OpenAI
-        vision_client = OpenAI(
-            api_key=nvidia_key,
-            base_url="https://integrate.api.nvidia.com/v1"
-        )
-        vision_model = cfg.get("nvidia_model", "moonshotai/kimi-k3")
+        vision_client = _get_vision_client()
+
+        # Pick vision model based on which provider the client is using
+        gemini_key = cfg.get("gemini_api_key", "")
+        if gemini_key:
+            vision_model = cfg.get("gemini_model", "gemini-3.8-flash")
+        elif cfg.get("nvidia_api_key", ""):
+            vision_model = cfg.get("nvidia_model", "moonshotai/kimi-k3")
+        else:
+            vision_model = cfg.get("groq_model", "openai/gpt-oss-120b")
 
         response = vision_client.chat.completions.create(
             model=vision_model,
@@ -208,7 +223,7 @@ def analyze_screen(question: str = "What do you see on the screen?") -> str:
                         f"User's question: {question}"
                     )},
                     {"type": "image_url", "image_url": {
-                        "url": f"data:image/png;base64,{img_b64}"
+                        "url": f"data:{mime};base64,{img_b64}"
                     }}
                 ]
             }],
