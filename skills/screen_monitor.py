@@ -43,8 +43,15 @@ def capture_screen() -> str:
     """
     Take a screenshot and return it as a base64-encoded PNG string.
     The screenshot is kept in memory — never saved to disk permanently.
+    Raises RuntimeError if no display is available.
     """
-    img = pyautogui.screenshot()
+    try:
+        img = pyautogui.screenshot()
+    except Exception as e:
+        raise RuntimeError(
+            f"Screenshot failed (no display?): {str(e)[:80]}. "
+            "Open a file in VS Code — I can read code directly without a screenshot."
+        )
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")

@@ -29,7 +29,7 @@
     "gemini_api_key": "YOUR_GEMINI_API_KEY_HERE",
     "gemini_model": "gemini-3.8-flash",
     "nvidia_api_key": "YOUR_NVIDIA_API_KEY_HERE",
-    "nvidia_model": "moonshotai/kimi-k3",
+    "nvidia_model": "meta/llama-3.2-11b-vision-instruct",
     "openai_base_url": "https://api.groq.com/openai/v1",
     "groq_model": "openai/gpt-oss-120b",
     "tts_engine": "edge",
@@ -44,5 +44,6 @@
         "watch_interval": 10,
         "auto_check_syntax": true,
         "hotkey": "ctrl+alt+h"
-    }
+    },
+    "yolo_model": "yolov8s.pt"
 }

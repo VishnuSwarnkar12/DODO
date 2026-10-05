@@ -34,13 +34,20 @@ Desktop.ini
 *.suo
 *.user
 
-# ── Whisper model cache (large, auto-downloaded on first run) ──────────────────
+# ── Whisper & Vision model cache (large, auto-downloaded on first run) ──────────
 *.pt
 *.bin
+*.onnx
+models/
 
-# ── Files DODO created for you (personal) ─────────────────────────────────────
+# ── Files DODO created for you (personal) / Test data ─────────────────────────
 Desktop/
 dataset/
+vcpkg/
+vision/
+Black and Blue Gradient Digital Skill Workshop Poster.png
+test_*.jpg
+test_*.png
 
 # ── Security: block common secret files ──
 .env

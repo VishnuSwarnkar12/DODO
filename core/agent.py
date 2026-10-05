@@ -402,6 +402,65 @@ TOOLS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "detect_objects",
+            "description": "Detect and identify real-world objects on screen or in an image using YOLOv8 AI vision. Use when user says: 'what objects are here', 'identify this', 'detect objects', 'what can you see'. Returns a list of detected objects with confidence scores.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "image_path": {"type": "string", "description": "Optional path to an image file. If not given, captures the screen automatically."}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "look_through_camera",
+            "description": "Look through the user's webcam/camera to see the user, their surroundings, what they are holding, or items in the room. Use when user says: 'look at me', 'what am I holding', 'check webcam', 'scan camera', 'what do you see in the room', 'access my webcam'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string", "description": "Question about what is seen through the camera"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "show_camera_preview",
+            "description": "Open a live camera preview window with real-time YOLO object detection bounding boxes. Use when user says: 'show camera', 'open live camera', 'start camera preview'.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "close_camera_preview",
+            "description": "Close the live camera preview window.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_my_expression",
+            "description": "Analyze the user's face in real-time through the webcam to detect their emotion, expression (smiling, pleasant, neutral, surprised, squinting), mood, and head tilt. Use when user says: 'what is my expression', 'how do I look', 'am I smiling', 'detect my emotion', 'check my mood', 'analyze my face'.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
 ]
 
 # ── System prompt ─────────────────────────────────────────────────────────────
@@ -701,6 +760,36 @@ def _execute_tool(name: str, args: dict) -> str:
                 filepath = editor_info["filepath"]
             return sm.edit_file(filepath, args["old_text"], args["new_text"])
 
+        elif name == "detect_objects":
+            from core.object_recognition import recognize_objects_summary
+            image_path = args.get("image_path", "")
+            if image_path and os.path.exists(image_path):
+                return recognize_objects_summary(image_path)
+            # No path given — try to capture the screen
+            try:
+                import skills.screen_monitor as sm
+                img_b64 = sm.capture_screen()
+                return recognize_objects_summary(img_b64)
+            except Exception as cap_err:
+                return f"Could not capture screen for detection: {str(cap_err)[:100]}"
+
+        elif name == "look_through_camera":
+            import skills.webcam_vision as wv
+            question = args.get("question", "What do you see through the camera?")
+            return wv.analyze_webcam(question)
+
+        elif name == "show_camera_preview":
+            import skills.webcam_vision as wv
+            return wv.start_camera_preview()
+
+        elif name == "close_camera_preview":
+            import skills.webcam_vision as wv
+            return wv.stop_camera_preview()
+
+        elif name == "check_my_expression":
+            import skills.face_expression as fe
+            return fe.get_current_expression()
+
         return f"Unknown tool: {name}"
 
     except Exception as e:
@@ -747,7 +836,7 @@ def _get_model() -> str:
     cfg = load_config()
     provider = cfg.get('ai_provider', 'groq')
     if provider == 'nvidia':
-        return cfg.get('nvidia_model', 'moonshotai/kimi-k3')
+        return cfg.get('nvidia_model', 'meta/llama-3.2-11b-vision-instruct')
     if provider == 'gemini':
         return cfg.get('gemini_model', 'gemini-3.8-flash')
     return cfg.get('groq_model', 'openai/gpt-oss-120b')
@@ -762,6 +851,47 @@ def reset_client():
 
 _MAX_TOOL_ROUNDS = 6   # max LLM→tool loops per user turn
 _MAX_HISTORY     = 20  # messages kept in context
+_MAX_RETRIES     = 3   # retries on transient API errors (503)
+
+
+def _get_fallback_client_and_model():
+    """Fallback to Groq if the current provider fails (quota/rate limit/validation)."""
+    try:
+        cfg = load_config()
+        key = cfg.get("groq_api_key", "")
+        if not key:
+            return None, None
+        base_url = cfg.get("openai_base_url", "https://api.groq.com/openai/v1")
+        model = cfg.get("groq_model", "openai/gpt-oss-120b")
+        return OpenAI(api_key=key, base_url=base_url), model
+    except Exception:
+        return None, None
+
+
+def _llm_call(client, **kwargs):
+    """Call the LLM with automatic retry on transient errors (503/429)."""
+    import time as _time
+    last_err = None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            return client.chat.completions.create(**kwargs)
+        except Exception as e:
+            last_err = e
+            code = getattr(e, 'status_code', 0)
+            err_msg = str(e).lower()
+            # If permanent quota exhaustion (not a temporary rate limit), don't waste time retrying
+            if "quota" in err_msg or "resource_exhausted" in err_msg:
+                raise
+            # 503 = overloaded, 429 = transient rate limit → retry with backoff
+            if code in (503, 429):
+                delay = 2 ** attempt  # 1s, 2s, 4s
+                _time.sleep(delay)
+                continue
+            # 400 = bad request, 404 = model not found → don't retry
+            raise
+    # All retries exhausted
+    raise last_err
+
 
 def process(user_message: str) -> str:
     """
@@ -793,7 +923,6 @@ def process(user_message: str) -> str:
             _history.append({"role": "assistant", "content": reply})
             save_chat_history(_history)
             return reply
-        # If local brain can't handle it, tell user
         fallback = "⚠️ Online mode is OFF. I can handle: time, date, volume, open apps, lock screen, screenshots, reminders. Turn Online mode ON in Settings for full power."
         _history.append({"role": "assistant", "content": fallback})
         save_chat_history(_history)
@@ -808,14 +937,37 @@ def process(user_message: str) -> str:
 
         # Agent loop: call LLM → execute tools → repeat until done
         for _ in range(_MAX_TOOL_ROUNDS):
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                tools=TOOLS,
-                tool_choice="auto",
-                temperature=0.7,
-                max_tokens=2048,
-            )
+            try:
+                response = _llm_call(
+                    client,
+                    model=model,
+                    messages=messages,
+                    tools=TOOLS,
+                    tool_choice="auto",
+                    temperature=0.7,
+                    max_tokens=2048,
+                )
+            except Exception as call_err:
+                err_str = str(call_err)
+                # Auto-fallback to Groq if primary provider hits quota (429) or schema/thought issue (400)
+                if any(k in err_str for k in ["429", "RESOURCE_EXHAUSTED", "thought_signature", "Tool call validation", "quota"]):
+                    fb_client, fb_model = _get_fallback_client_and_model()
+                    if fb_client and (client != fb_client or model != fb_model):
+                        client = fb_client
+                        model = fb_model
+                        response = _llm_call(
+                            client,
+                            model=model,
+                            messages=messages,
+                            tools=TOOLS,
+                            tool_choice="auto",
+                            temperature=0.7,
+                            max_tokens=2048,
+                        )
+                    else:
+                        raise
+                else:
+                    raise
 
             msg = response.choices[0].message
 
@@ -829,22 +981,8 @@ def process(user_message: str) -> str:
                 return reply
 
             # Execute each tool call
-            # Add assistant message with tool calls to messages
-            messages.append({
-                "role": "assistant",
-                "content": msg.content or "",
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments
-                        }
-                    }
-                    for tc in msg.tool_calls
-                ]
-            })
+            # Add assistant message with tool calls to messages (preserve msg intact for thought_signature)
+            messages.append(msg)
 
             for tc in msg.tool_calls:
                 tool_name = tc.function.name
@@ -869,9 +1007,9 @@ def process(user_message: str) -> str:
                 })
 
         # Exceeded max rounds — ask the LLM to synthesise all tool results
-        # into a proper answer instead of dumping raw snippets
         try:
-            synthesis = client.chat.completions.create(
+            synthesis = _llm_call(
+                client,
                 model=model,
                 messages=messages + [{
                     "role": "user",
@@ -894,8 +1032,30 @@ def process(user_message: str) -> str:
 
     except Exception as e:
         err = str(e)
-        if "rate" in err.lower() or "limit" in err.lower():
-            return "I've hit the rate limit. Give me a moment."
+
+        # Final resilient attempt: if error occurred, try fallback once directly
+        if any(k in err for k in ["429", "RESOURCE_EXHAUSTED", "thought_signature", "Tool call validation", "quota"]):
+            try:
+                fb_client, fb_model = _get_fallback_client_and_model()
+                if fb_client:
+                    fb_res = fb_client.chat.completions.create(
+                        model=fb_model,
+                        messages=[{"role": "system", "content": system}, {"role": "user", "content": user_message}],
+                        temperature=0.7,
+                        max_tokens=1024,
+                    )
+                    fallback_reply = (fb_res.choices[0].message.content or "").strip()
+                    if fallback_reply:
+                        _history.append({"role": "assistant", "content": fallback_reply})
+                        save_chat_history(_history)
+                        return fallback_reply
+            except Exception:
+                pass
+
+        if "503" in err or "high demand" in err.lower():
+            return "The AI model is experiencing a temporary spike in high demand (503). Retrying or switching models in Settings may help."
+        if "rate" in err.lower() or "limit" in err.lower() or "quota" in err.lower():
+            return "API quota/rate limit reached. Switching to Groq in model settings is recommended."
         if "api_key" in err.lower():
             return "API key issue. Check config.json."
 

@@ -225,7 +225,15 @@ class ControlPanel(ctk.CTk):
             text_color=ACCENT, font=ctk.CTkFont("Segoe UI", 16),
             command=self._on_mic_btn_click,
         )
-        self._mic_btn.pack(side="left")
+        self._mic_btn.pack(side="left", padx=(0, 6))
+
+        self._cam_btn = ctk.CTkButton(
+            inner, text="📷", width=40, height=40, corner_radius=20,
+            fg_color=SURFACE_ALT, hover_color="#253040",
+            text_color=ACCENT, font=ctk.CTkFont("Segoe UI", 16),
+            command=lambda: self._inject_command("look through my camera and tell me what you see"),
+        )
+        self._cam_btn.pack(side="left")
 
     # ══════════════════════════════════════════════════════════════════════════
     # HOME VIEW — orb + greeting + quick actions
@@ -277,6 +285,7 @@ class ControlPanel(ctk.CTk):
         qa = ctk.CTkFrame(body, fg_color="transparent")
         qa.pack(fill="x")
         for label, cmd in [("📸  Screenshot", "take a screenshot"),
+                           ("📷  Webcam", "look through my camera and tell me what you see"),
                            ("🔋  Battery", "battery status"),
                            ("🌐  My Blog", "open my blog"),
                            ("🔒  Lock", "lock screen")]:
