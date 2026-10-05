@@ -117,9 +117,17 @@ INTENT_PATTERNS = [
                         r"how (hot|cold|warm)", r"is it raining"]),
 
     # ── Reminders ────────────────────────────────────────────────────────────
-    ("set_reminder",   [r"remind me", r"set\s*(a|the)?\s*reminder", r"set\s*(a|the)?\s*timer",
-                        r"yaad dilana", r"reminder.*set", r"in\s+\d+\s*min"]),
-    ("list_reminders", [r"(list|show|my|pending)\s*reminder"]),
+    ("cancel_reminder",   [r"(?:cancel|delete|remove)\s*(?:the|my)?\s*reminder",
+                           r"reminder\s*(?:cancel|delete|remove)"]),
+    ("snooze_reminder",   [r"\bsnooze\b", r"postpone\s*(?:the|my)?\s*reminder"]),
+    ("complete_reminder", [r"(?:mark|set)\s*(?:the|my)?\s*reminder.*(?:done|complete|completed|finished)",
+                           r"(?:complete|finish)\s*(?:the|my)?\s*reminder"]),
+    ("clear_reminders",   [r"clear\s*(?:all|completed)?\s*reminders?", r"delete\s*all\s*reminders?"]),
+    ("list_reminders",    [r"(?:list|show|my|pending|today's|all)\s*reminders?",
+                           r"what are my reminders", r"kya reminders hai"]),
+    ("set_reminder",      [r"remind me", r"set\s*(?:a|the)?\s*reminder", r"set\s*(?:a|the)?\s*timer",
+                           r"yaad dilana", r"reminder.*set", r"in\s+\d+\s*(?:min|minute|sec|hour)",
+                           r"schedule\s*(?:a|the)?\s*reminder", r"alert me"]),
 
     # ── Summarize (before web_search so "summarize X" doesn't become a search)
     ("summarize",      [r"\bsummarize\b", r"\bsummary\b", r"give me.*(summary|gist|overview)",
@@ -289,13 +297,39 @@ def _classify_single(text: str, raw: str) -> dict:
         city = _extract_city(norm)
         plan = [{"type": "weather", "action": "get_weather", "value": city}]
 
-    # ── New: Reminders ───────────────────────────────────────────────────────
+    # ── Reminders ────────────────────────────────────────────────────────────
     elif intent == "set_reminder":
-        text_val, minutes = _extract_reminder(norm)
-        plan = [{"type": "reminder", "action": "set", "value": text_val, "minutes": minutes}]
+        info = _extract_reminder(norm)
+        plan = [{
+            "type": "reminder",
+            "action": "set",
+            "value": info["text"],
+            "minutes": info.get("minutes", 5),
+            "due": info.get("due"),
+            "priority": info.get("priority", "normal"),
+            "repeat": info.get("repeat", "none"),
+        }]
 
     elif intent == "list_reminders":
-        plan = [{"type": "reminder", "action": "list", "value": None}]
+        filter_type = "today" if "today" in norm else ("completed" if "completed" in norm else ("all" if "all" in norm else "pending"))
+        plan = [{"type": "reminder", "action": "list", "value": filter_type}]
+
+    elif intent == "cancel_reminder":
+        r_id = _extract_reminder_id(norm)
+        plan = [{"type": "reminder", "action": "cancel", "id": r_id}]
+
+    elif intent == "snooze_reminder":
+        r_id = _extract_reminder_id(norm)
+        mins = _extract_snooze_minutes(norm)
+        plan = [{"type": "reminder", "action": "snooze", "id": r_id, "minutes": mins}]
+
+    elif intent == "complete_reminder":
+        r_id = _extract_reminder_id(norm)
+        plan = [{"type": "reminder", "action": "complete", "id": r_id}]
+
+    elif intent == "clear_reminders":
+        target = "all" if "all" in norm else "completed"
+        plan = [{"type": "reminder", "action": "clear", "value": target}]
 
     # ── New: Web search ──────────────────────────────────────────────────────
     elif intent == "web_search":
@@ -410,28 +444,62 @@ def _extract_city(text: str) -> str:
     return text if text else None
 
 
-def _extract_reminder(text: str) -> tuple:
-    """Extract reminder text and minutes from a reminder command.
-    Returns (reminder_text, minutes).
-    """
-    # Try to find "in X minutes/hours"
-    m = re.search(r"in\s+(\d+)\s*(min|minute|minutes|hour|hours|hr|hrs|sec|seconds)", text)
-    minutes = 5  # default 5 minutes
-    if m:
-        num = int(m.group(1))
-        unit = m.group(2)
-        if "hour" in unit or "hr" in unit:
-            minutes = num * 60
-        elif "sec" in unit:
-            minutes = max(1, num // 60)
-        else:
-            minutes = num
-        # Remove the time part to get the reminder text
-        text = text[:m.start()].strip()
+class ReminderInfo(dict):
+    """Dictionary that also unpacks as (text, minutes) for backward compatibility."""
+    def __iter__(self):
+        yield self.get("text", "Reminder")
+        yield self.get("minutes", 5)
 
-    # Clean up the reminder text
-    text = re.sub(r"(?:remind me|set.*reminder|set.*timer|yaad dilana)\s*(?:to|that)?\s*", "", text).strip()
-    return (text or "Reminder", minutes)
+
+def _extract_reminder(text: str) -> ReminderInfo:
+    """Extract reminder details (text, minutes, due, priority, repeat).
+    Returns a ReminderInfo dict that can also be unpacked as (text, minutes).
+    """
+    try:
+        from skills.reminders import parse_natural_reminder_input
+        parsed = parse_natural_reminder_input(text)
+        info = ReminderInfo(parsed)
+        from datetime import datetime
+        now = datetime.now()
+        due_dt = datetime.fromisoformat(parsed["due"])
+        mins = max(1, int((due_dt - now).total_seconds() // 60))
+        info["minutes"] = mins
+        return info
+    except Exception:
+        m = re.search(r"in\s+(\d+)\s*(min|minute|minutes|hour|hours|hr|hrs|sec|seconds)", text)
+        minutes = 5
+        if m:
+            num = int(m.group(1))
+            unit = m.group(2)
+            if "hour" in unit or "hr" in unit:
+                minutes = num * 60
+            elif "sec" in unit:
+                minutes = max(1, num // 60)
+            else:
+                minutes = num
+            text = text[:m.start()].strip()
+
+        text = re.sub(r"(?:remind me|set.*reminder|set.*timer|yaad dilana)\s*(?:to|that)?\s*", "", text).strip()
+        return ReminderInfo({"text": text or "Reminder", "minutes": minutes, "priority": "normal", "repeat": "none", "due": None})
+
+
+def _extract_reminder_id(text: str) -> int | None:
+    """Extract reminder ID from user commands like 'cancel reminder 3' or 'complete #2'."""
+    m = re.search(r"(?:reminder|id|#)\s*#?\s*(\d+)", text, re.IGNORECASE)
+    if m:
+        return int(m.group(1))
+    m2 = re.search(r"\b(\d+)\b", text)
+    if m2:
+        return int(m2.group(1))
+    return None
+
+
+def _extract_snooze_minutes(text: str) -> int:
+    """Extract snooze duration in minutes from commands like 'snooze for 15 minutes'."""
+    m = re.search(r"(?:for|by)?\s*(\d+)\s*(?:min|minute|minutes|m)\b", text, re.IGNORECASE)
+    if m:
+        return int(m.group(1))
+    return 10
 
 
 def _extract_url(text: str) -> str:

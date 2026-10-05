@@ -77,19 +77,57 @@ def processing_loop():
 # ── Reminder background checker ───────────────────────────────────────────────
 
 def reminder_loop():
-    """Check for due reminders every 30 seconds."""
-    from skills.reminders import check_due_reminders
+    """Check for due reminders every 5 seconds with audio, voice, and desktop notifications."""
+    try:
+        import winsound
+    except ImportError:
+        winsound = None
+
+    from skills.reminders import check_due_reminders, check_missed_reminders
+
+    # Check for reminders missed while DODO was shut down
+    try:
+        missed = check_missed_reminders(max_hours=24)
+        if missed:
+            count = len(missed)
+            summary = ", ".join(f"'{m.get('text')}'" for m in missed[:3])
+            alert_msg = f"Missed {count} reminder{'s' if count != 1 else ''} while offline: {summary}"
+            ui_chat(alert_msg, sender="dodo")
+            ui_log("reminder", f"⚠️ {alert_msg}")
+    except Exception:
+        pass
+
     while True:
         try:
-            due = check_due_reminders()
-            for text in due:
-                msg = f"Reminder: {text}"
+            due = check_due_reminders(detailed=True)
+            for item in due:
+                text = item.get("text", "Reminder") if isinstance(item, dict) else str(item)
+                priority = item.get("priority", "normal") if isinstance(item, dict) else "normal"
+
+                # Audio chime
+                if winsound:
+                    try:
+                        winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+                    except Exception:
+                        pass
+
+                prefix = "Urgent Reminder" if priority in ("urgent", "high") else "Reminder"
+                msg = f"{prefix}: {text}"
                 ui_chat(msg, sender="dodo")
                 ui_log("reminder", f"⏰ {msg}")
-                speech.speak(msg)
+
+                # Desktop notification
+                if panel and hasattr(panel, "notify_desktop"):
+                    panel.notify_desktop("DODO Reminder", f"{'🔴 ' if priority in ('urgent', 'high') else ''}{text}")
+
+                # Spoken alert
+                speech.speak(f"{prefix}. {text}")
+
+                # Refresh reminders UI if active
+                ui_queue.put({"type": "refresh_reminders"})
         except Exception:
             pass
-        time.sleep(30)
+        time.sleep(5)
 
 
 # ── Startup greeting ───────────────────────────────────────────────────────────

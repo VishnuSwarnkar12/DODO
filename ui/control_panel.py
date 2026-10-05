@@ -124,7 +124,7 @@ class ControlPanel(ctk.CTk):
 
         # Nav icons
         self._nav_buttons = {}
-        for key, icon in [("home", "⌂"), ("chat", "◯"), ("memory", "◇"), ("settings", "⚙")]:
+        for key, icon in [("home", "⌂"), ("chat", "◯"), ("reminders", "⏰"), ("memory", "◇"), ("settings", "⚙")]:
             btn = ctk.CTkButton(
                 sb, text=icon, width=42, height=42,
                 font=ctk.CTkFont("Segoe UI", 18),
@@ -163,6 +163,7 @@ class ControlPanel(ctk.CTk):
             )
         builders = {
             "home": self._build_home, "chat": self._build_chat_view,
+            "reminders": self._build_reminders,
             "memory": self._build_memory, "settings": self._build_settings,
         }
         builders.get(view, self._build_chat_view)()
@@ -369,6 +370,278 @@ class ControlPanel(ctk.CTk):
                 ).pack(side="left", fill="x", expand=True, padx=(0, 14), pady=10)
 
         self._build_input_bar(self._content)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # REMINDERS VIEW
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _build_reminders(self):
+        self._build_header(self._content)
+        body = ctk.CTkScrollableFrame(self._content, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=30, pady=20)
+
+        # Title & Subtitle
+        ctk.CTkLabel(body, text="TIME & PRODUCTIVITY", font=ctk.CTkFont("Consolas", 10, "bold"),
+                     text_color=ACCENT).pack(anchor="w")
+
+        top_row = ctk.CTkFrame(body, fg_color="transparent")
+        top_row.pack(fill="x", pady=(4, 14))
+
+        ctk.CTkLabel(top_row, text="Reminders & Timers",
+                     font=ctk.CTkFont("Segoe UI", 22, "bold"),
+                     text_color=TEXT).pack(side="left")
+
+        # Filter buttons on the right
+        filter_frame = ctk.CTkFrame(top_row, fg_color="transparent")
+        filter_frame.pack(side="right")
+
+        current_filter = getattr(self, "_reminder_filter", "pending")
+        for f_key, f_lbl in [("pending", "Pending"), ("today", "Today"), ("completed", "Completed"), ("all", "All")]:
+            is_active = (current_filter == f_key)
+            btn = ctk.CTkButton(
+                filter_frame, text=f_lbl, width=70, height=28, corner_radius=14,
+                font=ctk.CTkFont("Segoe UI", 11, "bold" if is_active else "normal"),
+                fg_color=ACCENT if is_active else SURFACE,
+                text_color=BG if is_active else MUTED,
+                hover_color="#00b894" if is_active else SURFACE_ALT,
+                command=lambda k=f_key: self._set_reminder_filter(k),
+            )
+            btn.pack(side="left", padx=3)
+
+        # ── Quick Add Reminder Card ──
+        add_card = ctk.CTkFrame(body, fg_color=SURFACE, corner_radius=12)
+        add_card.pack(fill="x", pady=(0, 18), padx=2)
+
+        add_inner = ctk.CTkFrame(add_card, fg_color="transparent")
+        add_inner.pack(fill="x", padx=16, pady=14)
+
+        ctk.CTkLabel(add_inner, text="➕  ADD NEW REMINDER", font=ctk.CTkFont("Consolas", 10, "bold"),
+                     text_color=ACCENT).pack(anchor="w", pady=(0, 8))
+
+        # Task Text Input
+        self._rem_text_entry = ctk.CTkEntry(
+            add_inner, placeholder_text="What do you want DODO to remind you about? (e.g. Drink water, Call mom, Meeting)",
+            height=38, fg_color=SURFACE_ALT, border_color="#253040", border_width=1,
+            text_color=TEXT, font=ctk.CTkFont("Segoe UI", 13), corner_radius=8
+        )
+        self._rem_text_entry.pack(fill="x", pady=(0, 10))
+
+        # Config Row: Time Presets, Custom Time, Priority, Repeat, Submit
+        opts_row = ctk.CTkFrame(add_inner, fg_color="transparent")
+        opts_row.pack(fill="x")
+
+        # Time entry
+        self._rem_time_entry = ctk.CTkEntry(
+            opts_row, placeholder_text="Time (e.g. 15m, 5pm, tomorrow 9am)",
+            width=210, height=34, fg_color=SURFACE_ALT, border_color="#253040", border_width=1,
+            text_color=TEXT, font=ctk.CTkFont("Segoe UI", 12), corner_radius=8
+        )
+        self._rem_time_entry.insert(0, "15m")
+        self._rem_time_entry.pack(side="left", padx=(0, 8))
+
+        # Quick preset buttons
+        for preset_label, preset_val in [("+10m", "10m"), ("+30m", "30m"), ("+1h", "1 hour"), ("Tomorrow", "tomorrow 9am")]:
+            ctk.CTkButton(
+                opts_row, text=preset_label, width=54, height=32, corner_radius=8,
+                fg_color=SURFACE_ALT, hover_color="#2a3548", text_color=TEXT,
+                font=ctk.CTkFont("Segoe UI", 11),
+                command=lambda val=preset_val: self._apply_time_preset(val)
+            ).pack(side="left", padx=(0, 4))
+
+        # Priority option
+        self._rem_prio_menu = ctk.CTkOptionMenu(
+            opts_row, values=["Normal", "Urgent", "Low"], width=95, height=34,
+            corner_radius=8, fg_color=SURFACE_ALT, button_color="#2a3548",
+            button_hover_color=ACCENT, text_color=TEXT, font=ctk.CTkFont("Segoe UI", 11)
+        )
+        self._rem_prio_menu.set("Normal")
+        self._rem_prio_menu.pack(side="left", padx=(6, 6))
+
+        # Repeat option
+        self._rem_repeat_menu = ctk.CTkOptionMenu(
+            opts_row, values=["None", "Daily", "Weekdays", "Weekly", "Hourly"], width=105, height=34,
+            corner_radius=8, fg_color=SURFACE_ALT, button_color="#2a3548",
+            button_hover_color=ACCENT, text_color=TEXT, font=ctk.CTkFont("Segoe UI", 11)
+        )
+        self._rem_repeat_menu.set("None")
+        self._rem_repeat_menu.pack(side="left", padx=(0, 8))
+
+        # Add button
+        ctk.CTkButton(
+            opts_row, text="Add Reminder", width=120, height=34, corner_radius=8,
+            fg_color=ACCENT, hover_color="#00b894", text_color=BG,
+            font=ctk.CTkFont("Segoe UI", 12, "bold"),
+            command=self._on_add_reminder_clicked,
+        ).pack(side="right")
+
+        # Status feedback label
+        self._rem_status_lbl = ctk.CTkLabel(
+            add_inner, text="", font=ctk.CTkFont("Segoe UI", 11), text_color=ACCENT
+        )
+        self._rem_status_lbl.pack(anchor="w", pady=(4, 0))
+
+        # ── Reminders List ──
+        try:
+            import skills.reminders as rm
+            items = rm.get_reminders(current_filter)
+        except Exception:
+            items = []
+
+        if not items:
+            empty_box = ctk.CTkFrame(body, fg_color="transparent")
+            empty_box.pack(fill="x", pady=30)
+            ctk.CTkLabel(empty_box, text="✨", font=ctk.CTkFont("Segoe UI", 32)).pack()
+            ctk.CTkLabel(empty_box, text=f"No {current_filter} reminders.",
+                         font=ctk.CTkFont("Segoe UI", 15, "bold"), text_color=TEXT).pack(pady=(6, 2))
+            ctk.CTkLabel(empty_box, text="Create a reminder above or simply speak to DODO!",
+                         font=ctk.CTkFont("Segoe UI", 12), text_color=MUTED).pack()
+        else:
+            for r in items:
+                r_id = r.get("id")
+                r_text = r.get("text", "")
+                r_due = r.get("due", "")
+                r_priority = r.get("priority", "normal")
+                r_repeat = r.get("repeat", "none")
+                is_done = r.get("done", False)
+
+                card = ctk.CTkFrame(body, fg_color=SURFACE, corner_radius=10)
+                card.pack(fill="x", pady=4, padx=2)
+
+                row = ctk.CTkFrame(card, fg_color="transparent")
+                row.pack(fill="x", padx=14, pady=10)
+
+                # Priority indicator dot
+                dot_color = DANGER if r_priority in ("urgent", "high") else (ACCENT if r_priority == "normal" else "#00aaff")
+                ctk.CTkLabel(row, text="●", text_color=dot_color, font=ctk.CTkFont("Segoe UI", 14)).pack(side="left", padx=(0, 8))
+
+                # Text and time subframe
+                text_col = ctk.CTkFrame(row, fg_color="transparent")
+                text_col.pack(side="left", fill="x", expand=True)
+
+                title_font = ctk.CTkFont("Segoe UI", 13, "overstrike" if is_done else "bold")
+                title_color = MUTED if is_done else TEXT
+                ctk.CTkLabel(text_col, text=r_text, font=title_font, text_color=title_color, anchor="w", justify="left").pack(anchor="w")
+
+                # Format time string
+                try:
+                    from skills.reminders import format_time_relative
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(r_due)
+                    rel_time = format_time_relative(dt)
+                    sub_info = f"{rel_time} ({dt.strftime('%b %d, %I:%M %p')})"
+                except Exception:
+                    sub_info = r_due
+
+                if r_repeat != "none":
+                    sub_info += f"  •  🔁 {r_repeat.capitalize()}"
+                if r_priority in ("urgent", "high"):
+                    sub_info += "  •  🔴 Urgent"
+
+                ctk.CTkLabel(text_col, text=sub_info, font=ctk.CTkFont("Segoe UI", 10), text_color=MUTED, anchor="w").pack(anchor="w", pady=(2, 0))
+
+                # Action buttons
+                btn_box = ctk.CTkFrame(row, fg_color="transparent")
+                btn_box.pack(side="right")
+
+                if not is_done:
+                    # Complete button
+                    ctk.CTkButton(
+                        btn_box, text="✓ Done", width=62, height=28, corner_radius=6,
+                        fg_color=ACCENT_SOFT, hover_color=ACCENT, text_color=ACCENT,
+                        font=ctk.CTkFont("Segoe UI", 11, "bold"),
+                        command=lambda rid=r_id: self._complete_reminder(rid),
+                    ).pack(side="left", padx=3)
+
+                    # Snooze button
+                    ctk.CTkButton(
+                        btn_box, text="💤 +10m", width=64, height=28, corner_radius=6,
+                        fg_color=SURFACE_ALT, hover_color="#2a3548", text_color=TEXT,
+                        font=ctk.CTkFont("Segoe UI", 11),
+                        command=lambda rid=r_id: self._snooze_reminder(rid, 10),
+                    ).pack(side="left", padx=3)
+
+                # Delete / Cancel button
+                ctk.CTkButton(
+                    btn_box, text="✕", width=32, height=28, corner_radius=6,
+                    fg_color="transparent", hover_color=DANGER, text_color=MUTED,
+                    font=ctk.CTkFont("Segoe UI", 12),
+                    command=lambda rid=r_id: self._delete_reminder(rid),
+                ).pack(side="left", padx=3)
+
+        # Clear completed button if on completed/all tab
+        if current_filter in ("completed", "all"):
+            bot_actions = ctk.CTkFrame(body, fg_color="transparent")
+            bot_actions.pack(fill="x", pady=15)
+            ctk.CTkButton(
+                bot_actions, text="Clear Completed Reminders", width=190, height=30,
+                corner_radius=8, fg_color=SURFACE, hover_color=DANGER, text_color=MUTED,
+                font=ctk.CTkFont("Segoe UI", 11),
+                command=self._clear_completed_reminders
+            ).pack(side="right")
+
+        self._build_input_bar(self._content)
+
+    def _apply_time_preset(self, val: str):
+        if hasattr(self, "_rem_time_entry") and self._rem_time_entry:
+            self._rem_time_entry.delete(0, "end")
+            self._rem_time_entry.insert(0, val)
+
+    def _set_reminder_filter(self, f_key: str):
+        self._reminder_filter = f_key
+        self._show_view("reminders")
+
+    def _on_add_reminder_clicked(self):
+        text = self._rem_text_entry.get().strip() if self._rem_text_entry else ""
+        if not text:
+            if hasattr(self, "_rem_status_lbl"):
+                self._rem_status_lbl.configure(text="Please enter a reminder description.", text_color=DANGER)
+            return
+
+        time_val = self._rem_time_entry.get().strip() if self._rem_time_entry else "5m"
+        prio_val = self._rem_prio_menu.get().lower() if self._rem_prio_menu else "normal"
+        if "urgent" in prio_val:
+            prio_val = "urgent"
+        repeat_val = self._rem_repeat_menu.get().lower() if self._rem_repeat_menu else "none"
+
+        try:
+            import skills.reminders as rm
+            rm.set_reminder(text=text, minutes=time_val, priority=prio_val, repeat=repeat_val)
+            self._show_view("reminders")
+        except Exception as e:
+            if hasattr(self, "_rem_status_lbl"):
+                self._rem_status_lbl.configure(text=f"Error: {e}", text_color=DANGER)
+
+    def _complete_reminder(self, reminder_id: int):
+        try:
+            import skills.reminders as rm
+            rm.complete_reminder(reminder_id)
+            self._show_view("reminders")
+        except Exception:
+            pass
+
+    def _snooze_reminder(self, reminder_id: int, minutes: int = 10):
+        try:
+            import skills.reminders as rm
+            rm.snooze_reminder(reminder_id, minutes)
+            self._show_view("reminders")
+        except Exception:
+            pass
+
+    def _delete_reminder(self, reminder_id: int):
+        try:
+            import skills.reminders as rm
+            rm.cancel_reminder(reminder_id)
+            self._show_view("reminders")
+        except Exception:
+            pass
+
+    def _clear_completed_reminders(self):
+        try:
+            import skills.reminders as rm
+            rm.clear_reminders("completed")
+            self._show_view("reminders")
+        except Exception:
+            pass
 
     # ══════════════════════════════════════════════════════════════════════════
     # SETTINGS VIEW
@@ -632,11 +905,29 @@ class ControlPanel(ctk.CTk):
                     self.add_chat(event["text"], event.get("sender", "dodo"))
                 elif t == "log":
                     self.add_log(event.get("action_type", "unknown"), event["text"])
+                elif t == "refresh_reminders":
+                    if self._active_view == "reminders":
+                        self._show_view("reminders")
         except queue.Empty:
             pass
         except Exception:
             pass
         self.after(80, self._poll_queue)
+
+    def notify_desktop(self, title: str, message: str):
+        """Display a native desktop notification via pystray or Windows balloon tip."""
+        try:
+            if self._tray_icon:
+                self._tray_icon.notify(message, title)
+                return
+        except Exception:
+            pass
+        try:
+            import subprocess
+            cmd = f'[System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms"); $notify = New-Object System.Windows.Forms.NotifyIcon; $notify.Icon = [System.Drawing.SystemIcons]::Information; $notify.Visible = $True; $notify.ShowBalloonTip(4000, "{title}", "{message}", [System.Windows.Forms.ToolTipIcon]::Info)'
+            subprocess.Popen(["powershell", "-WindowStyle", "Hidden", "-Command", cmd], creationflags=0x08000000 if os.name == "nt" else 0)
+        except Exception:
+            pass
 
     # ══════════════════════════════════════════════════════════════════════════
     # SYSTEM TRAY + HOTKEYS

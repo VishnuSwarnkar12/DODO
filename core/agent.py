@@ -207,14 +207,16 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "set_reminder",
-            "description": "Set a reminder that will alert the user after N minutes",
+            "description": "Set a reminder that alerts the user at a specific time or after N minutes",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "text": {"type": "string", "description": "Reminder text"},
-                    "minutes": {"type": "integer", "description": "Minutes from now"}
+                    "text": {"type": "string", "description": "Reminder task description"},
+                    "time": {"type": "string", "description": "Time expression, e.g. '15 minutes', 'at 5pm', 'tomorrow at 9am', 'in 2 hours'"},
+                    "priority": {"type": "string", "enum": ["low", "normal", "high", "urgent"], "description": "Priority level"},
+                    "repeat": {"type": "string", "enum": ["none", "daily", "weekdays", "weekly", "hourly"], "description": "Recurrence pattern"}
                 },
-                "required": ["text", "minutes"]
+                "required": ["text"]
             }
         }
     },
@@ -222,8 +224,56 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "list_reminders",
-            "description": "Show all pending reminders",
-            "parameters": {"type": "object", "properties": {}}
+            "description": "Show reminders filtered by status or date",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filter": {"type": "string", "enum": ["pending", "today", "completed", "all"], "description": "Filter criteria"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cancel_reminder",
+            "description": "Delete or cancel a reminder by its ID",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reminder_id": {"type": "integer", "description": "ID of the reminder"}
+                },
+                "required": ["reminder_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "snooze_reminder",
+            "description": "Snooze a reminder by N minutes",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reminder_id": {"type": "integer", "description": "ID of the reminder"},
+                    "minutes": {"type": "integer", "description": "Minutes to snooze (default 10)"}
+                },
+                "required": ["reminder_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "complete_reminder",
+            "description": "Mark a reminder as completed by its ID",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reminder_id": {"type": "integer", "description": "ID of the reminder"}
+                },
+                "required": ["reminder_id"]
+            }
         }
     },
     {
@@ -616,11 +666,28 @@ def _execute_tool(name: str, args: dict) -> str:
 
         elif name == "set_reminder":
             import skills.reminders as rm
-            return rm.set_reminder(args["text"], args["minutes"])
+            text = args.get("text", "")
+            time_val = args.get("time") or args.get("minutes", 5)
+            prio = args.get("priority", "normal")
+            repeat = args.get("repeat", "none")
+            return rm.set_reminder(text=text, minutes=time_val, priority=prio, repeat=repeat)
 
         elif name == "list_reminders":
             import skills.reminders as rm
-            return rm.list_reminders()
+            filter_type = args.get("filter", "pending")
+            return rm.list_reminders(filter_type)
+
+        elif name == "cancel_reminder":
+            import skills.reminders as rm
+            return rm.cancel_reminder(args["reminder_id"])
+
+        elif name == "snooze_reminder":
+            import skills.reminders as rm
+            return rm.snooze_reminder(args["reminder_id"], args.get("minutes", 10))
+
+        elif name == "complete_reminder":
+            import skills.reminders as rm
+            return rm.complete_reminder(args["reminder_id"])
 
         elif name == "volume_control":
             import skills.system_control as sc

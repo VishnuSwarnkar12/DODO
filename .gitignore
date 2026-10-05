@@ -48,6 +48,8 @@ vision/
 Black and Blue Gradient Digital Skill Workshop Poster.png
 test_*.jpg
 test_*.png
+audit_runtime.py
+tests/
 
 # ── Security: block common secret files ──
 .env

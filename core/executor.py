@@ -206,12 +206,44 @@ def execute(result: dict, confirm_callback=None) -> str:
             # ── Reminders ────────────────────────────────────────────────────
             elif step_type == "reminder":
                 if action == "set":
+                    due_val = step.get("due")
+                    priority = step.get("priority", "normal")
+                    repeat = step.get("repeat", "none")
                     minutes = step.get("minutes", 5)
-                    result = reminders.set_reminder(value, minutes)
+                    result = reminders.set_reminder(
+                        text=value,
+                        minutes=minutes,
+                        priority=priority,
+                        repeat=repeat,
+                        due_iso=due_val
+                    )
                     responses.append(result)
                 elif action == "list":
-                    result = reminders.list_reminders()
+                    filter_type = value or "pending"
+                    result = reminders.list_reminders(filter_type)
                     responses.append(result)
+                elif action == "cancel":
+                    r_id = step.get("id")
+                    if r_id is not None:
+                        responses.append(reminders.cancel_reminder(r_id))
+                    else:
+                        responses.append("Please specify which reminder ID to cancel (e.g. 'cancel reminder 2').")
+                elif action == "snooze":
+                    r_id = step.get("id")
+                    mins = step.get("minutes", 10)
+                    if r_id is not None:
+                        responses.append(reminders.snooze_reminder(r_id, mins))
+                    else:
+                        responses.append("Please specify which reminder ID to snooze.")
+                elif action == "complete":
+                    r_id = step.get("id")
+                    if r_id is not None:
+                        responses.append(reminders.complete_reminder(r_id))
+                    else:
+                        responses.append("Please specify which reminder ID to mark as done.")
+                elif action == "clear":
+                    target = value or "completed"
+                    responses.append(reminders.clear_reminders(target))
 
             # ── Web search ───────────────────────────────────────────────────
             elif step_type == "web_search":
