@@ -21,7 +21,8 @@ Built with Python + OpenAI SDK (via Groq) + Whisper STT + Edge TTS.
 | 🔊 **Volume** | "Set volume to 50%", "Mute", "Volume up" |
 | 📁 **Files** | "Create file X", "Open folder Y", "Find file Z" |
 | ☁️ **Weather** | "What's the weather in Delhi?" |
-| ⏰ **Reminders** | "Remind me to call mom in 30 minutes" |
+| ⏰ **Reminders** | "Remind me at 5pm", "Drink water every 2 hours", "Urgent reminder to call mom in 15 mins" — recurring alerts, snooze, desktop toasts, and dedicated GUI tab |
+| 👁️ **Vision** | "Look through my camera", "What do you see?" — real-time object & facial expression recognition |
 | 🖥️ **System** | "Lock screen", "Battery status", "Take screenshot", "Restart" |
 | 📱 **Apps** | "Open Chrome", "Close Spotify", "Open VS Code" |
 | 🧠 **Memory** | Remembers your name, preferences, corrections across sessions |
@@ -33,7 +34,7 @@ Built with Python + OpenAI SDK (via Groq) + Whisper STT + Edge TTS.
 
 ### 1. Clone the repo
 ```bash
-git clone https://github.com/YOUR_USERNAME/DODO.git
+git clone https://github.com/VishnuSwarnkar12/DODO.git
 cd DODO
 ```
 
@@ -62,6 +63,31 @@ python main.py
 **Voice mode:** Say **"DODO"** to wake it up, then speak your command.
 
 **Text mode:** Type in the bottom bar and press Enter or click Send.
+
+---
+
+## ⏰ Advanced Reminders & Time Management
+
+DODO includes an intelligent reminder engine with thread-safe persistence and multi-channel alerting:
+
+- **Natural Language Parsing**:
+  - **Relative offsets**: `"in 15 minutes"`, `"in 2 hours"`, `"in 30 seconds"`, `"half an hour"`
+  - **Clock times**: `"at 5pm"`, `"at 5:30 pm"`, `"at 9am"`, `"at noon"`, `"at midnight"`
+  - **Day & weekday scheduling**: `"tomorrow at 9am"`, `"tonight at 8pm"`, `"on Friday at 4pm"`, `"next Monday at 10am"`
+  - **Hindi / Hinglish**: `"5 minute baad"`, `"1 ghante baad"`, `"kal subah 9 baje"`, `"shaam ko 7 baje"`
+- **Recurring Schedules**: Set repeating reminders with `daily`, `weekdays`, `weekly`, `hourly`, or interval repeats (e.g. `"remind me to stretch every 2 hours"`).
+- **Priorities & Snooze**: Tag urgent tasks (`"remind me urgently to submit project"`) with visual and audio alerts, and quickly snooze tasks by 10 minutes (`"snooze reminder 2"`).
+- **Multi-Channel Alerting**:
+  - 🔊 **Audio Chime** (Windows alert chime)
+  - 🗣️ **Voice TTS** (Edge Neural speech announcement)
+  - 🪟 **Native Windows Notifications** (System tray bubble / desktop toast)
+  - 💬 **Interactive Chat & Activity Log**
+- **Dedicated GUI Tab (`⏰`)**:
+  - Filter by **Pending**, **Today**, **Completed**, or **All**
+  - Quick preset buttons (`+10m`, `+30m`, `+1h`, `Tomorrow`)
+  - One-click **✓ Done**, **💤 Snooze (+10m)**, and **✕ Delete**
+  - Live humanized countdowns (*"In 12 mins"*, *"Today at 5:30 PM"*, *"Overdue by 3 mins"*)
+- **Missed Reminder Recovery**: Detects tasks that came due while the PC was asleep or offline, gently notifying you upon launch.
 
 ---
 
@@ -98,27 +124,33 @@ DODO uses `yt-dlp` to stream audio. For best experience, install **VLC**:
 
 ```
 DODO/
-├── main.py              # Entry point — starts voice + UI
+├── main.py              # Entry point — starts voice + UI + background services
 ├── config.example.json  # Config template (copy to config.json)
 ├── requirements.txt     # Python dependencies
 ├── core/
-│   ├── agent.py         # AI brain — tool-calling loop (GPT-120B via Groq)
-│   ├── voice.py         # Wake word detection (Whisper)
+│   ├── agent.py         # AI agent — tool-calling loop (Groq / OpenAI compatible)
+│   ├── brain.py         # Intent classification & natural language parsing
+│   ├── voice.py         # Wake word detection & audio capture (Whisper)
 │   ├── speech.py        # Text-to-speech (Edge Neural TTS)
+│   ├── object_recognition.py # Real-time YOLOv8 object recognition
 │   ├── memory.py        # Persistent user memory & facts
-│   └── executor.py      # Offline regex fallback dispatcher
+│   └── executor.py      # Local action dispatcher & offline fallback
 ├── skills/
-│   ├── music_player.py  # Alexa-style local music via yt-dlp
+│   ├── reminders.py     # Advanced reminder, timer, & recurring task engine
+│   ├── webcam_vision.py # Live camera vision analysis
+│   ├── face_expression.py # Facial expression tracking
+│   ├── music_player.py  # Local streaming music via yt-dlp
 │   ├── email_sender.py  # Gmail compose / SMTP
 │   ├── web_search.py    # DuckDuckGo search
 │   ├── weather.py       # Live weather
-│   ├── reminders.py     # Reminder scheduler
-│   ├── browser_control.py
-│   ├── file_ops.py
-│   └── system_control.py
+│   ├── browser_control.py # Browser automation
+│   ├── file_ops.py      # File & folder operations
+│   └── system_control.py# Windows volume, battery, lock, & apps
 ├── ui/
-│   └── control_panel.py # Tkinter control panel
-└── memory/              # Created automatically on first run
+│   ├── control_panel.py # CustomTkinter desktop panel (Home, Chat, Reminders, Memory, Settings)
+│   └── widgets.py       # Pulsing orb, chat bubbles, toggle switches
+└── memory/              # Local JSON data (auto-created on first run, git-ignored)
+    ├── reminders.json
     ├── chat_history.json
     ├── user_profile.json
     └── commands.json
