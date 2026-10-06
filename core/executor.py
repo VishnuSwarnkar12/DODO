@@ -81,8 +81,9 @@ def execute(result: dict, confirm_callback=None) -> str:
                     responses.append("Locking screen.")
 
                 elif action == "screenshot":
-                    path = sys_ctrl.take_screenshot()
-                    responses.append(f"Screenshot saved to {path}.")
+                    import skills.screenshot_engine as se
+                    res = se.take_screenshot()
+                    responses.append(res.get("message", f"Screenshot saved to {res.path}."))
 
                 elif action == "battery":
                     info = sys_ctrl.get_battery()
@@ -244,6 +245,20 @@ def execute(result: dict, confirm_callback=None) -> str:
                 elif action == "clear":
                     target = value or "completed"
                     responses.append(reminders.clear_reminders(target))
+
+            # ── Screenshot ───────────────────────────────────────────────────
+            elif step_type == "screenshot":
+                import skills.screenshot_engine as se
+                if action == "open_folder":
+                    responses.append(se.open_screenshots_folder())
+                elif action == "open_latest":
+                    responses.append(se.open_latest_screenshot())
+                else:
+                    mode = step.get("mode", "fullscreen")
+                    delay = step.get("delay", 0)
+                    analyze = step.get("analyze", False)
+                    res = se.take_screenshot(mode=mode, delay=delay, analyze=analyze)
+                    responses.append(res.get("message", f"Screenshot saved to {res.path}."))
 
             # ── Web search ───────────────────────────────────────────────────
             elif step_type == "web_search":

@@ -141,7 +141,31 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "take_screenshot",
-            "description": "Capture the screen and save it to Pictures folder",
+            "description": "Capture the user's screen or active window with audio feedback, automatic clipboard copying, and optional AI vision analysis.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "mode": {"type": "string", "enum": ["fullscreen", "window"], "description": "Capture mode: 'fullscreen' for full display, 'window' for active application"},
+                    "delay": {"type": "integer", "description": "Delay in seconds before capturing (default 0)"},
+                    "copy_to_clipboard": {"type": "boolean", "description": "Whether to copy the image to Windows clipboard (default true)"},
+                    "analyze": {"type": "boolean", "description": "Whether to analyze the screenshot with AI vision"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_screenshots_folder",
+            "description": "Open the DODO Screenshots directory in Windows Explorer",
+            "parameters": {"type": "object", "properties": {}}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_latest_screenshot",
+            "description": "Open the most recently captured screenshot in default image viewer",
             "parameters": {"type": "object", "properties": {}}
         }
     },
@@ -627,9 +651,21 @@ def _execute_tool(name: str, args: dict) -> str:
             return f"Searching YouTube for: {args['query']}"
 
         elif name == "take_screenshot":
-            import skills.system_control as sc
-            path = sc.take_screenshot()
-            return f"Screenshot saved to {path}"
+            import skills.screenshot_engine as se
+            mode = args.get("mode", "fullscreen")
+            delay = int(args.get("delay", 0))
+            copy_clip = args.get("copy_to_clipboard", True)
+            analyze = args.get("analyze", False)
+            res = se.take_screenshot(mode=mode, delay=delay, copy_clipboard=copy_clip, analyze=analyze)
+            return res.get("message", f"Screenshot saved to {res.path}")
+
+        elif name == "open_screenshots_folder":
+            import skills.screenshot_engine as se
+            return se.open_screenshots_folder()
+
+        elif name == "open_latest_screenshot":
+            import skills.screenshot_engine as se
+            return se.open_latest_screenshot()
 
         elif name == "create_file":
             import skills.file_ops as fo

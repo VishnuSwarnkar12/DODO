@@ -181,14 +181,20 @@ def _cleanup_old_screenshots():
             pass
 
 
-def take_screenshot() -> str:
-    _cleanup_old_screenshots()
-    ts    = datetime.now().strftime("%Y%m%d_%H%M%S")
-    pics  = os.path.join(os.path.expanduser("~"), "Pictures")
-    path  = os.path.join(pics, f"DODO_screenshot_{ts}.png")
-    img   = pyautogui.screenshot()
-    img.save(path)
-    return path
+def take_screenshot(mode: str = "fullscreen", delay: int = 0, copy_clipboard: bool = True, analyze: bool = False) -> str:
+    """Take a screenshot using DODO's advanced screenshot engine. Returns the file path."""
+    try:
+        from skills.screenshot_engine import take_screenshot as se_take
+        res = se_take(mode=mode, delay=delay, copy_clipboard=copy_clipboard, analyze=analyze)
+        return res.path
+    except Exception:
+        _cleanup_old_screenshots()
+        ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
+        pics = os.path.join(os.path.expanduser("~"), "Pictures")
+        path = os.path.join(pics, f"DODO_screenshot_{ts}.png")
+        img  = pyautogui.screenshot()
+        img.save(path)
+        return path
 
 
 def get_battery() -> str:

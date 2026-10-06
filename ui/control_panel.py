@@ -234,7 +234,15 @@ class ControlPanel(ctk.CTk):
             text_color=ACCENT, font=ctk.CTkFont("Segoe UI", 16),
             command=lambda: self._inject_command("look through my camera and tell me what you see"),
         )
-        self._cam_btn.pack(side="left")
+        self._cam_btn.pack(side="left", padx=(0, 6))
+
+        self._ss_btn = ctk.CTkButton(
+            inner, text="📸", width=40, height=40, corner_radius=20,
+            fg_color=SURFACE_ALT, hover_color="#253040",
+            text_color=ACCENT, font=ctk.CTkFont("Segoe UI", 16),
+            command=self._show_screenshot_hud,
+        )
+        self._ss_btn.pack(side="left")
 
     # ══════════════════════════════════════════════════════════════════════════
     # HOME VIEW — orb + greeting + quick actions
@@ -285,16 +293,19 @@ class ControlPanel(ctk.CTk):
                      text_color=MUTED).pack(anchor="w", pady=(0, 8))
         qa = ctk.CTkFrame(body, fg_color="transparent")
         qa.pack(fill="x")
-        for label, cmd in [("📸  Screenshot", "take a screenshot"),
-                           ("📷  Webcam", "look through my camera and tell me what you see"),
-                           ("🔋  Battery", "battery status"),
-                           ("🌐  My Blog", "open my blog"),
-                           ("🔒  Lock", "lock screen")]:
+        actions = [
+            ("📸  Screenshot", self._show_screenshot_hud),
+            ("📷  Webcam", lambda: self._inject_command("look through my camera and tell me what you see")),
+            ("🔋  Battery", lambda: self._inject_command("battery status")),
+            ("🌐  My Blog", lambda: self._inject_command("open my blog")),
+            ("🔒  Lock", lambda: self._inject_command("lock screen"))
+        ]
+        for label, cmd_fn in actions:
             ctk.CTkButton(
                 qa, text=label, width=130, height=38, corner_radius=10,
                 fg_color=SURFACE, hover_color=SURFACE_ALT,
                 text_color=TEXT, font=ctk.CTkFont("Segoe UI", 11),
-                command=lambda c=cmd: self._inject_command(c),
+                command=cmd_fn,
             ).pack(side="left", padx=(0, 8))
 
         self._build_input_bar(self._content)
@@ -970,3 +981,88 @@ class ControlPanel(ctk.CTk):
     def _get_icon_path(self):
         return os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             "assets", "dodo_icon.ico")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SCREENSHOT HUD
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _show_screenshot_hud(self):
+        """Open a futuristic floating HUD for multi-mode screen capture."""
+        hud = ctk.CTkToplevel(self)
+        hud.title("DODO — Screenshot HUD")
+        hud.geometry("420x370")
+        hud.resizable(False, False)
+        hud.configure(fg_color=BG)
+        hud.attributes("-topmost", True)
+        hud.grab_set()
+
+        try:
+            x = self.winfo_x() + (self.winfo_width() // 2) - 210
+            y = self.winfo_y() + (self.winfo_height() // 2) - 185
+            hud.geometry(f"+{max(0, x)}+{max(0, y)}")
+        except Exception:
+            pass
+
+        frame = ctk.CTkFrame(hud, fg_color=SURFACE, corner_radius=14)
+        frame.pack(fill="both", expand=True, padx=16, pady=16)
+
+        ctk.CTkLabel(
+            frame, text="📸  SCREENSHOT HUD", font=ctk.CTkFont("Consolas", 14, "bold"),
+            text_color=ACCENT
+        ).pack(anchor="w", padx=16, pady=(14, 2))
+
+        ctk.CTkLabel(
+            frame, text="Instant capture, clipboard sync & AI vision analysis",
+            font=ctk.CTkFont("Segoe UI", 11), text_color=MUTED
+        ).pack(anchor="w", padx=16, pady=(0, 14))
+
+        def _execute_capture(mode="fullscreen", delay=0, analyze=False):
+            hud.destroy()
+            def _run():
+                if mode == "window" or delay > 0:
+                    self.withdraw()
+                    time.sleep(0.35)
+                try:
+                    import skills.screenshot_engine as se
+                    res = se.take_screenshot(mode=mode, delay=delay, analyze=analyze)
+                    if hasattr(self, "notify_desktop"):
+                        self.notify_desktop("📸 Screenshot Captured", f"{res.get('window_title', 'Screen')} — Copied to clipboard!")
+                    self.add_chat(f"📸 {res.get('message', 'Screenshot saved.')}", sender="dodo")
+                    self.add_log("system_command", f"Screenshot: {res.get('filename')}")
+                finally:
+                    self.deiconify()
+                    self.lift()
+
+            threading.Thread(target=_run, daemon=True).start()
+
+        options = [
+            ("🖥️  Fullscreen (Instant)", lambda: _execute_capture("fullscreen", 0, False)),
+            ("🪟  Active Window (Focused App)", lambda: _execute_capture("window", 0, False)),
+            ("⏱️  5-Second Timer Countdown", lambda: _execute_capture("fullscreen", 5, False)),
+            ("🔍  Capture & AI Vision Analysis", lambda: _execute_capture("fullscreen", 0, True)),
+        ]
+
+        for text, cmd in options:
+            ctk.CTkButton(
+                frame, text=text, height=38, corner_radius=8,
+                fg_color=SURFACE_ALT, hover_color="#253040", text_color=TEXT,
+                font=ctk.CTkFont("Segoe UI", 12), anchor="w",
+                command=cmd
+            ).pack(fill="x", padx=16, pady=4)
+
+        bot_row = ctk.CTkFrame(frame, fg_color="transparent")
+        bot_row.pack(fill="x", padx=16, pady=(12, 8))
+
+        ctk.CTkButton(
+            bot_row, text="📁 Open Folder", width=120, height=32, corner_radius=6,
+            fg_color="transparent", hover_color=SURFACE_ALT, text_color=MUTED,
+            font=ctk.CTkFont("Segoe UI", 11),
+            command=lambda: (__import__("skills.screenshot_engine").screenshot_engine.open_screenshots_folder(), hud.destroy())
+        ).pack(side="left")
+
+        ctk.CTkButton(
+            bot_row, text="Cancel", width=80, height=32, corner_radius=6,
+            fg_color="transparent", hover_color=SURFACE_ALT, text_color=MUTED,
+            font=ctk.CTkFont("Segoe UI", 11),
+            command=hud.destroy
+        ).pack(side="right")

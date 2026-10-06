@@ -99,7 +99,9 @@ INTENT_PATTERNS = [
     ("mute",           [r"\bmute\b", r"unmute"]),
     ("lock_screen",    [r"lock\s*(the)?\s*screen", r"\block\b"]),
     ("screenshot",     [r"screenshot", r"screen\s*shot", r"capture\s*(the)?\s*screen",
-                        r"take\s+a?\s*ss", r"snap\s*screen"]),
+                        r"take\s+a?\s*ss", r"snap\s*screen", r"screenshot\s*(folder|directory)",
+                        r"latest\s*screenshot", r"active\s*window\s*screenshot",
+                        r"screenshot\s*window"]),
     ("battery",        [r"battery", r"charge\s*(level|status|percent)?"]),
     ("restart",        [r"\brestart\b", r"reboot"]),
     ("sleep",          [r"\bsleep\s*(mode)?\b", r"hibernate"]),
@@ -276,7 +278,14 @@ def _classify_single(text: str, raw: str) -> dict:
         plan = [{"type": "system_command", "action": "lock_screen", "value": None}]
 
     elif intent == "screenshot":
-        plan = [{"type": "system_command", "action": "screenshot", "value": None}]
+        params = _extract_screenshot_params(norm)
+        plan = [{
+            "type": "screenshot",
+            "action": params["action"],
+            "mode": params["mode"],
+            "delay": params["delay"],
+            "analyze": params["analyze"]
+        }]
 
     elif intent == "battery":
         plan = [{"type": "system_command", "action": "battery", "value": None}]
@@ -524,4 +533,28 @@ def _extract_fact(text: str) -> str:
     if m:
         return m.group(1).strip()
     return text.strip()
+
+
+def _extract_screenshot_params(text: str) -> dict:
+    """Extract mode, delay, and target action from screenshot commands."""
+    action = "capture"
+    if re.search(r"\b(open|show)\b.*\b(folder|directory)\b", text):
+        action = "open_folder"
+    elif re.search(r"\b(open|show|view|latest)\b.*\b(screenshot|image)\b", text):
+        action = "open_latest"
+
+    mode = "window" if re.search(r"\b(window|active|this app|current app|focused)\b", text) else "fullscreen"
+    delay = 0
+    m_delay = re.search(r"(?:in|after)\s+(\d+)\s*(?:sec|seconds|s)\b", text)
+    if m_delay:
+        delay = int(m_delay.group(1))
+
+    analyze = bool(re.search(r"\b(analyze|analyse|explain|read|tell me|what|describe)\b", text))
+
+    return {
+        "action": action,
+        "mode": mode,
+        "delay": delay,
+        "analyze": analyze,
+    }
 

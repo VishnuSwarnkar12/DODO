@@ -22,8 +22,9 @@ Built with Python + OpenAI SDK (via Groq) + Whisper STT + Edge TTS.
 | 📁 **Files** | "Create file X", "Open folder Y", "Find file Z" |
 | ☁️ **Weather** | "What's the weather in Delhi?" |
 | ⏰ **Reminders** | "Remind me at 5pm", "Drink water every 2 hours", "Urgent reminder to call mom in 15 mins" — recurring alerts, snooze, desktop toasts, and dedicated GUI tab |
+| 📸 **Screenshot** | "Take a screenshot", "Screenshot active window", "Screenshot in 5 seconds" — multi-mode capture, auto-clipboard sync, audio FX, AI Vision HUD, & floating modal |
 | 👁️ **Vision** | "Look through my camera", "What do you see?" — real-time object & facial expression recognition |
-| 🖥️ **System** | "Lock screen", "Battery status", "Take screenshot", "Restart" |
+| 🖥️ **System** | "Lock screen", "Battery status", "Restart", "Sleep" |
 | 📱 **Apps** | "Open Chrome", "Close Spotify", "Open VS Code" |
 | 🧠 **Memory** | Remembers your name, preferences, corrections across sessions |
 | 🔌 **Offline** | Falls back to local commands when internet is down |
@@ -91,6 +92,26 @@ DODO includes an intelligent reminder engine with thread-safe persistence and mu
 
 ---
 
+## 📸 Futuristic Screenshot & Screen Intelligence
+
+DODO features a multi-mode screen capture and vision intelligence engine designed for speed and productivity:
+
+- **Multi-Mode Capturing**:
+  - **🖥️ Fullscreen**: Captures primary or multi-monitor virtual desktop.
+  - **🪟 Active Window**: Automatically identifies the focused application (VS Code, Chrome, etc.) and crops cleanly to its shadowless window frame via Windows DWM APIs.
+  - **⏱️ Delayed Countdown Timer**: 3-second or 5-second countdown timer allowing you to switch tabs, expand dropdown menus, or select windows before snapping.
+- **Instant Windows Clipboard Sync**: Automatically copies the captured bitmap directly to the Windows Clipboard (`CF_DIB`) so you can immediately `Ctrl+V` paste into Discord, Slack, WhatsApp, Twitter, or email.
+- **Futuristic Audio Shutter FX**: Dual-frequency sci-fi camera snap audio chirp (`1600Hz` $\to$ `2400Hz`) provides instant feedback.
+- **🔍 AI Vision HUD Analysis**: Option to inspect the screen with multimodal AI (Gemini / NVIDIA / Groq) to explain error tracebacks, read active code, or describe UI elements.
+- **Interactive Screenshot HUD**:
+  - Floating launcher accessible via the `📸` button in the UI input bar or Home screen Quick Actions.
+  - Quick action buttons to open the captured image or jump directly to the screenshots folder in Windows Explorer.
+- **Structured Storage & Smart Retention**:
+  - Automatically organized under `Pictures/DODO_Screenshots/` with timestamped and app-tagged filenames.
+  - Scalable background cleanup keeps storage clean without deleting recent captures.
+
+---
+
 ## 🔑 Getting a Free Groq API Key
 
 1. Go to [console.groq.com](https://console.groq.com)
@@ -137,6 +158,8 @@ DODO/
 │   └── executor.py      # Local action dispatcher & offline fallback
 ├── skills/
 │   ├── reminders.py     # Advanced reminder, timer, & recurring task engine
+│   ├── screenshot_engine.py # Futuristic multi-mode capture, clipboard sync & audio FX
+│   ├── screen_monitor.py # Multi-monitor capture & AI screen analysis
 │   ├── webcam_vision.py # Live camera vision analysis
 │   ├── face_expression.py # Facial expression tracking
 │   ├── music_player.py  # Local streaming music via yt-dlp
