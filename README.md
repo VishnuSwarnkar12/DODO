@@ -24,8 +24,8 @@ Built with Python + OpenAI SDK (via Groq) + Whisper STT + Edge TTS.
 | ⏰ **Reminders** | "Remind me at 5pm", "Drink water every 2 hours", "Urgent reminder to call mom in 15 mins" — recurring alerts, snooze, desktop toasts, and dedicated GUI tab |
 | 📸 **Screenshot** | "Take a screenshot", "Screenshot active window", "Screenshot in 5 seconds" — multi-mode capture, auto-clipboard sync, audio FX, AI Vision HUD, & floating modal |
 | 👁️ **Vision** | "Look through my camera", "What do you see?" — real-time object & facial expression recognition |
-| 🖥️ **System** | "Lock screen", "Battery status", "Restart", "Sleep" |
-| 📱 **Apps** | "Open Chrome", "Close Spotify", "Open VS Code" |
+| 🖥️ **System** | "Lock screen", "Battery status", "System status" (CPU/RAM/Disk health stats), "Restart", "Sleep" |
+| 📱 **Apps** | "Open Chrome", "Open Android Studio", "Open VLC", "Close Spotify" — dynamic Start Menu & Registry app launching |
 | 🧠 **Memory** | Remembers your name, preferences, corrections across sessions |
 | 🔌 **Offline** | Falls back to local commands when internet is down |
 

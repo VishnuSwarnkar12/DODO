@@ -89,6 +89,10 @@ def execute(result: dict, confirm_callback=None) -> str:
                     info = sys_ctrl.get_battery()
                     responses.append(info)
 
+                elif action in ("status", "stats", "health"):
+                    info = sys_ctrl.get_system_health_summary()
+                    responses.append(info)
+
                 elif action in ("restart", "sleep"):
                     if confirm_callback:
                         ok = confirm_callback(f"Are you sure you want to {action}?")

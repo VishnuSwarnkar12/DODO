@@ -108,6 +108,9 @@ INTENT_PATTERNS = [
                         r"latest\s*screenshot", r"active\s*window\s*screenshot",
                         r"screenshot\s*window"]),
     ("battery",        [r"battery", r"charge\s*(level|status|percent)?"]),
+    ("system_status",  [r"system\s+(status|health|stats|specs|info)", r"pc\s+(status|health|stats)",
+                        r"computer\s+(status|health|stats)", r"how\s+is\s+my\s+(pc|system|computer)",
+                        r"hardware\s+(status|stats|info)"]),
     ("restart",        [r"\brestart\b", r"reboot"]),
     ("sleep",          [r"\bsleep\s*(mode)?\b", r"hibernate"]),
 
@@ -295,6 +298,9 @@ def _classify_single(text: str, raw: str) -> dict:
 
     elif intent == "battery":
         plan = [{"type": "system_command", "action": "battery", "value": None}]
+
+    elif intent == "system_status":
+        plan = [{"type": "system_command", "action": "status", "value": None}]
 
     elif intent in ("restart", "sleep"):
         plan = [{"type": "system_command", "action": intent, "value": None}]

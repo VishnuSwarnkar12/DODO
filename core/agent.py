@@ -361,11 +361,11 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "system_action",
-            "description": "System actions: 'lock' (lock screen), 'battery' (check battery), 'restart', 'sleep'",
+            "description": "System actions: 'lock' (lock screen), 'battery' (check battery), 'status'/'stats' (hardware CPU/RAM/Disk health summary), 'restart', 'sleep'",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "action": {"type": "string", "enum": ["lock", "battery", "restart", "sleep"]}
+                    "action": {"type": "string", "enum": ["lock", "battery", "status", "stats", "restart", "sleep"]}
                 },
                 "required": ["action"]
             }
@@ -819,6 +819,8 @@ def _execute_tool(name: str, args: dict) -> str:
                 return "Screen locked."
             elif action == "battery":
                 return sc.get_battery()
+            elif action in ("status", "stats", "health"):
+                return sc.get_system_health_summary()
             elif action in ("restart", "sleep"):
                 sc.power_action(action)
                 return f"System will {action} now."
