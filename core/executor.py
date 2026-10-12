@@ -253,12 +253,38 @@ def execute(result: dict, confirm_callback=None) -> str:
                     responses.append(se.open_screenshots_folder())
                 elif action == "open_latest":
                     responses.append(se.open_latest_screenshot())
+                elif action == "set_folder":
+                    folder = step.get("folder")
+                    if folder:
+                        saved_path = se.set_screenshots_dir(folder)
+                        responses.append(f"Default screenshot destination updated to: {saved_path}")
+                    else:
+                        responses.append("Please specify a valid folder path.")
                 else:
                     mode = step.get("mode", "fullscreen")
                     delay = step.get("delay", 0)
                     analyze = step.get("analyze", False)
                     res = se.take_screenshot(mode=mode, delay=delay, analyze=analyze)
                     responses.append(res.get("message", f"Screenshot saved to {res.path}."))
+
+            # ── Email ────────────────────────────────────────────────────────
+            elif step_type == "email":
+                import skills.email_sender as em
+                action = step.get("action", "send")
+                if action == "history":
+                    history = em.get_email_history(5)
+                    if not history:
+                        responses.append("No emails sent or drafted recently.")
+                    else:
+                        lines = [f"• [{h.get('mode', 'email')}] To: {h.get('to')}, Subject: '{h.get('subject')}' ({h.get('status')})" for h in history]
+                        responses.append("Recent Email Activity:\n" + "\n".join(lines))
+                else:
+                    to = step.get("to") or ""
+                    subject = step.get("subject") or "Message from DODO"
+                    body = step.get("body") or "Hello, please find the message attached."
+                    attachments = step.get("attachments")
+                    res = em.send_email(to=to, subject=subject, body=body, attachments=attachments)
+                    responses.append(res)
 
             # ── Web search ───────────────────────────────────────────────────
             elif step_type == "web_search":

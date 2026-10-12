@@ -17,7 +17,7 @@ Built with Python + OpenAI SDK (via Groq) + Whisper STT + Edge TTS.
 |----------|----------|
 | 🎵 **Music** | "Play Ritviz", "Stop music" — streams audio locally, no browser |
 | 🌐 **Web** | "Open YouTube", "Search for X", "Go to my blog" |
-| 📧 **Email** | "Send email to X about Y" — opens Gmail compose pre-filled |
+| 📧 **Email** | "Send email to X with file Y attached", "Email latest screenshot to X" — document & file attachments (PDFs, docs, images), silent SMTP sending or pre-filled Gmail compose |
 | 🔊 **Volume** | "Set volume to 50%", "Mute", "Volume up" |
 | 📁 **Files** | "Create file X", "Open folder Y", "Find file Z" |
 | ☁️ **Weather** | "What's the weather in Delhi?" |
@@ -109,6 +109,27 @@ DODO features a multi-mode screen capture and vision intelligence engine designe
 - **Structured Storage & Smart Retention**:
   - Automatically organized under `Pictures/DODO_Screenshots/` with timestamped and app-tagged filenames.
   - Scalable background cleanup keeps storage clean without deleting recent captures.
+
+---
+
+## 📧 Advanced Email Engine with Document & File Attachments
+
+DODO includes a versatile email delivery and drafting skill with multi-format attachment support:
+
+- **📎 Document & File Attachments**:
+  - Attach documents, PDFs, spreadsheets, code files, zip archives, and images (`attachments=['report.pdf', 'invoice.docx']`).
+  - **Smart Attachment Resolver**: Finds files automatically across `Desktop`, `Documents`, `Downloads`, and Screenshots folders.
+  - **Latest Screenshot Shortcut**: Use `"attach the latest screenshot"` or `"latest_screenshot"` to automatically attach your most recent screen capture.
+  - **Provider Limits Guard**: Validates total attachment size (up to 25 MB) and file readability.
+- **🚀 Multi-Mode Delivery & Attachment Handling**:
+  - **1. Silent Direct Delivery (SMTP)**: Sends completely in the background via Gmail or custom SMTP with binary MIME attachments embedded directly when a 16-character App Password is set in `config.json`.
+  - **2. Interactive Web Compose (Gmail)**: Opens Gmail in Chrome with clean subject and body (never leaks file paths into the message text).
+    - 📋 **Native File Clipboard Injection (`CF_HDROP`)**: Copies files/documents into Windows Clipboard as physical file drop objects — simply press `Ctrl+V` inside Gmail compose to attach the actual file instantly!
+    - 📁 **1-Click Explorer Highlight**: Automatically reveals the file in Windows Explorer for effortless drag & drop.
+  - **3. Native Desktop Client Draft (`.eml`)**: Creates standard RFC 822 draft files with physical binary attachments embedded in the attachment bar, directly opening in Outlook or Windows Mail.
+- **👥 CC, BCC & Audit Outbox**:
+  - Full support for `cc` and `bcc` recipient fields.
+  - Audit history saved locally to `memory/email_history.json`.
 
 ---
 

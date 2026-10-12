@@ -12,6 +12,14 @@ import threading
 import time
 from datetime import datetime
 
+# Prevent UnicodeEncodeError on Windows terminals when printing Unicode paths/emojis
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 from core.voice    import VoiceEngine
 from core.agent   import process as agent_process
 from core import speech

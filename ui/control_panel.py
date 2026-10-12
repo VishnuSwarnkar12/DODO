@@ -16,6 +16,7 @@ Layout:
 
 import os
 import json
+import time
 import queue
 import threading
 import tkinter as tk
@@ -926,7 +927,7 @@ class ControlPanel(ctk.CTk):
         self.after(80, self._poll_queue)
 
     def notify_desktop(self, title: str, message: str):
-        """Display a native desktop notification via pystray or Windows balloon tip."""
+        """Display a native desktop notification via pystray or Windows balloon tip safely."""
         try:
             if self._tray_icon:
                 self._tray_icon.notify(message, title)
@@ -935,8 +936,10 @@ class ControlPanel(ctk.CTk):
             pass
         try:
             import subprocess
-            cmd = f'[System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms"); $notify = New-Object System.Windows.Forms.NotifyIcon; $notify.Icon = [System.Drawing.SystemIcons]::Information; $notify.Visible = $True; $notify.ShowBalloonTip(4000, "{title}", "{message}", [System.Windows.Forms.ToolTipIcon]::Info)'
-            subprocess.Popen(["powershell", "-WindowStyle", "Hidden", "-Command", cmd], creationflags=0x08000000 if os.name == "nt" else 0)
+            safe_title = str(title).replace('"', '`"').replace("\n", " ")[:60]
+            safe_msg = str(message).replace('"', '`"').replace("\n", " ")[:120]
+            cmd = f'[System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms") | Out-Null; $n = New-Object System.Windows.Forms.NotifyIcon; $n.Icon = [System.Drawing.SystemIcons]::Information; $n.Visible = $True; $n.ShowBalloonTip(3000, "{safe_title}", "{safe_msg}", [System.Windows.Forms.ToolTipIcon]::Info); Start-Sleep -Milliseconds 500; $n.Dispose()'
+            subprocess.Popen(["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", cmd], creationflags=0x08000000 if os.name == "nt" else 0)
         except Exception:
             pass
 
@@ -1020,18 +1023,21 @@ class ControlPanel(ctk.CTk):
             hud.destroy()
             def _run():
                 if mode == "window" or delay > 0:
-                    self.withdraw()
-                    time.sleep(0.35)
+                    self.after(0, self.withdraw)
+                    time.sleep(0.35 + (delay if delay > 0 else 0))
                 try:
                     import skills.screenshot_engine as se
-                    res = se.take_screenshot(mode=mode, delay=delay, analyze=analyze)
-                    if hasattr(self, "notify_desktop"):
-                        self.notify_desktop("📸 Screenshot Captured", f"{res.get('window_title', 'Screen')} — Copied to clipboard!")
-                    self.add_chat(f"📸 {res.get('message', 'Screenshot saved.')}", sender="dodo")
-                    self.add_log("system_command", f"Screenshot: {res.get('filename')}")
+                    res = se.take_screenshot(mode=mode, delay=0, analyze=analyze)
+                    if res.get("success"):
+                        self.after(0, lambda: self.notify_desktop("📸 Screenshot Captured", f"{res.get('window_title', 'Screen')} — Copied to clipboard!"))
+                        self.after(0, lambda: self.add_chat(f"📸 {res.get('message', 'Screenshot saved.')}", sender="dodo"))
+                        self.after(0, lambda: self.add_log("system_command", f"Screenshot: {res.get('filename')}"))
+                    else:
+                        self.after(0, lambda: self.add_chat(f"⚠️ {res.get('message', 'Screenshot failed.')}", sender="dodo"))
+                except Exception as e:
+                    self.after(0, lambda: self.add_chat(f"⚠️ Screenshot error: {e}", sender="dodo"))
                 finally:
-                    self.deiconify()
-                    self.lift()
+                    self.after(0, lambda: (self.deiconify(), self.lift()))
 
             threading.Thread(target=_run, daemon=True).start()
 

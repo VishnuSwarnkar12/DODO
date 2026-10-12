@@ -172,6 +172,20 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "set_screenshot_folder",
+            "description": "Set and save the default directory where all future DODO screenshots are saved. Use when user asks to save screenshots to a specific folder.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "folder_path": {"type": "string", "description": "Absolute folder path to save screenshots to"}
+                },
+                "required": ["folder_path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "create_file",
             "description": "Create a file with content on the user's computer. Use for notes, code, scripts, etc.",
             "parameters": {
@@ -419,15 +433,40 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "send_email",
-            "description": "Write and send an email via Gmail. Use when user says 'send email', 'email X about Y', 'write an email to'. The LLM should compose the subject and body based on context.",
+            "description": "Compose, send, or draft an email via Gmail or SMTP, with optional document and file attachments (PDFs, images, documents, screenshots, etc.). Use when user says 'send email', 'email X with file Y', 'draft an email to', 'attach file to email'.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "to":      {"type": "string", "description": "Recipient email address"},
-                    "subject": {"type": "string", "description": "Email subject line"},
-                    "body":    {"type": "string", "description": "Full email body text"}
+                    "to":          {"type": "string", "description": "Recipient email address (or comma-separated list of emails)"},
+                    "subject":     {"type": "string", "description": "Email subject line"},
+                    "body":        {"type": "string", "description": "Full email body text"},
+                    "attachments": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional list of file paths or document names to attach (e.g. ['report.pdf'], ['latest_screenshot'], ['C:\\path\\document.docx'])"
+                    },
+                    "cc":          {"type": "string", "description": "Optional CC recipient(s)"},
+                    "bcc":         {"type": "string", "description": "Optional BCC recipient(s)"},
+                    "mode":        {
+                        "type": "string",
+                        "enum": ["auto", "smtp", "browser", "desktop_eml"],
+                        "description": "Delivery mode: 'auto' (SMTP if configured, else browser), 'browser' (Gmail web compose), 'desktop_eml' (open in Outlook/Windows Mail)"
+                    }
                 },
                 "required": ["to", "subject", "body"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_email_history",
+            "description": "View recent email sending and drafting activity.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Number of recent emails to show (default 5)"}
+                }
             }
         }
     },
@@ -667,6 +706,11 @@ def _execute_tool(name: str, args: dict) -> str:
             import skills.screenshot_engine as se
             return se.open_latest_screenshot()
 
+        elif name == "set_screenshot_folder":
+            import skills.screenshot_engine as se
+            folder = se.set_screenshots_dir(args["folder_path"])
+            return f"Default screenshot destination updated and saved to: {folder}"
+
         elif name == "create_file":
             import skills.file_ops as fo
             path = fo.create_file(
@@ -785,7 +829,26 @@ def _execute_tool(name: str, args: dict) -> str:
 
         elif name == "send_email":
             import skills.email_sender as em
-            return em.send_email(args["to"], args["subject"], args["body"])
+            return em.send_email(
+                to=args["to"],
+                subject=args["subject"],
+                body=args["body"],
+                attachments=args.get("attachments"),
+                cc=args.get("cc"),
+                bcc=args.get("bcc"),
+                mode=args.get("mode", "auto")
+            )
+
+        elif name == "get_email_history":
+            import skills.email_sender as em
+            history = em.get_email_history(limit=int(args.get("limit", 5)))
+            if not history:
+                return "No emails sent or drafted recently."
+            summary = []
+            for h in history:
+                atts = f", Attachments: {', '.join(h['attachments'])}" if h.get("attachments") else ""
+                summary.append(f"• [{h.get('mode', 'email')}] To: {h.get('to')}, Subject: '{h.get('subject')}' ({h.get('status')}){atts}")
+            return "Recent Email Activity:\n" + "\n".join(summary)
 
         elif name == "get_time_date":
             now = datetime.now()

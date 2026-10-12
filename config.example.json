@@ -40,10 +40,18 @@
     "whisper_wakeword_model": "tiny",
     "gmail_address": "",
     "gmail_app_password": "",
+    "email": {
+        "smtp_host": "smtp.gmail.com",
+        "smtp_port": 465,
+        "smtp_ssl": true,
+        "sender_name": "",
+        "preferred_mode": "auto"
+    },
     "screen_monitor": {
         "watch_interval": 10,
         "auto_check_syntax": true,
         "hotkey": "ctrl+alt+h"
     },
-    "yolo_model": "yolov8s.pt"
+    "yolo_model": "yolov8s.pt",
+    "screenshot_folder": ""
 }

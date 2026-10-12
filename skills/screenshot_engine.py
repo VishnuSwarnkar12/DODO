@@ -24,7 +24,7 @@ from ctypes import wintypes
 from PIL import Image, ImageGrab
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SCREENSHOTS_DIR = os.path.join(os.path.expanduser("~"), "Pictures", "DODO_Screenshots")
+DEFAULT_FALLBACK_DIR = os.path.join(os.path.expanduser("~"), "Pictures", "DODO_Screenshots")
 HISTORY_FILE = os.path.join(BASE_DIR, "memory", "screenshot_history.json")
 
 _lock = threading.RLock()
@@ -34,9 +34,39 @@ _lock = threading.RLock()
 # Storage & Catalog Management
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _ensure_dirs():
+def get_screenshots_dir() -> str:
+    """Return the configured screenshot directory, or default fallback."""
+    try:
+        from core.memory import load_config
+        cfg = load_config()
+        custom = cfg.get("screenshot_folder")
+        if custom and isinstance(custom, str) and custom.strip():
+            folder = os.path.expanduser(custom.strip())
+            return os.path.abspath(folder)
+    except Exception:
+        pass
+    return DEFAULT_FALLBACK_DIR
+
+
+def set_screenshots_dir(new_path: str) -> str:
+    """Update and persist screenshot folder in config.json."""
+    from core.memory import load_config, CONFIG_PATH
+    folder = os.path.abspath(os.path.expanduser(new_path.strip()))
+    os.makedirs(folder, exist_ok=True)
+    try:
+        cfg = load_config()
+        cfg["screenshot_folder"] = folder
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=4)
+    except Exception as e:
+        print(f"[ScreenshotEngine] Failed to save config: {e}")
+    return folder
+
+
+def _ensure_dirs(target_dir: Optional[str] = None):
     """Ensure output directories exist."""
-    os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
+    folder = target_dir or get_screenshots_dir()
+    os.makedirs(folder, exist_ok=True)
     os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
 
 
@@ -67,20 +97,21 @@ def _save_history(records: list[dict[str, Any]]) -> None:
             print(f"[ScreenshotEngine] Error saving history: {e}")
 
 
-def cleanup_old_screenshots(days: int = 7, max_files: int = 100) -> int:
+def cleanup_old_screenshots(days: int = 7, max_files: int = 100, target_dir: Optional[str] = None) -> int:
     """
     Intelligent retention policy: keeps screenshots up to N days or last M files.
-    Returns number of deleted files.
+    Runs non-blockingly so disk/cloud sync never delays active captures.
     """
-    _ensure_dirs()
+    folder = target_dir or get_screenshots_dir()
+    _ensure_dirs(folder)
     deleted = 0
     cutoff = time.time() - (days * 86400)
     with _lock:
         try:
             files = []
-            for f in os.listdir(SCREENSHOTS_DIR):
+            for f in os.listdir(folder):
                 if f.startswith("DODO_") and f.endswith(".png"):
-                    full_path = os.path.join(SCREENSHOTS_DIR, f)
+                    full_path = os.path.join(folder, f)
                     try:
                         mtime = os.path.getmtime(full_path)
                         files.append((mtime, full_path))
@@ -126,52 +157,29 @@ def play_shutter_sound():
 def copy_image_to_clipboard(pil_image: Image.Image) -> bool:
     """
     Copy a PIL Image directly to the Windows Clipboard in CF_DIB format.
-    Allows immediate Ctrl+V pasting into Discord, Slack, WhatsApp, web apps, etc.
+    Uses win32clipboard for memory-safe Windows native clipboard handling without access violations.
     """
     if os.name != "nt":
         return False
 
     try:
+        import win32clipboard
         output = io.BytesIO()
         pil_image.convert("RGB").save(output, "BMP")
-        # Windows CF_DIB requires bitmap data without the initial 14-byte BMP file header
+        # CF_DIB requires bitmap data without the 14-byte BMP header
         data = output.getvalue()[14:]
         output.close()
 
-        user32 = ctypes.windll.user32
-        kernel32 = ctypes.windll.kernel32
-
-        # Explicit 64-bit parameter typing to avoid access violation
-        kernel32.GlobalAlloc.restype = wintypes.HGLOBAL
-        kernel32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
-        kernel32.GlobalLock.restype = ctypes.c_void_p
-        kernel32.GlobalLock.argtypes = [wintypes.HGLOBAL]
-        kernel32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
-        user32.SetClipboardData.argtypes = [wintypes.UINT, wintypes.HANDLE]
-
-        GMEM_MOVEABLE = 0x0002
-        CF_DIB = 8
-
-        h_global = kernel32.GlobalAlloc(GMEM_MOVEABLE, len(data))
-        if not h_global:
-            return False
-
-        p_global = kernel32.GlobalLock(h_global)
-        if not p_global:
-            return False
-
-        ctypes.memmove(p_global, data, len(data))
-        kernel32.GlobalUnlock(h_global)
-
-        # Retry up to 3 times in case clipboard is temporarily locked by another app
+        # Retry in case clipboard is momentarily locked by another application
         for _ in range(3):
-            if user32.OpenClipboard(None):
-                user32.EmptyClipboard()
-                user32.SetClipboardData(CF_DIB, h_global)
-                user32.CloseClipboard()
+            try:
+                win32clipboard.OpenClipboard()
+                win32clipboard.EmptyClipboard()
+                win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
+                win32clipboard.CloseClipboard()
                 return True
-            time.sleep(0.04)
-
+            except Exception:
+                time.sleep(0.04)
         return False
     except Exception as e:
         print(f"[ScreenshotEngine] Clipboard copy error: {e}")
@@ -275,7 +283,8 @@ def take_screenshot(
     copy_clipboard: bool = True,
     play_sound: bool = True,
     analyze: bool = False,
-    question: Optional[str] = None
+    question: Optional[str] = None,
+    output_dir: Optional[str] = None
 ) -> ScreenshotResult:
     """
     Capture the screen with futuristic multi-mode capabilities.
@@ -287,55 +296,103 @@ def take_screenshot(
         play_sound: If True, plays the audio shutter chirp.
         analyze: If True, analyzes the captured image with Vision AI.
         question: Optional specific question for vision analysis.
+        output_dir: Custom destination directory (defaults to configured screenshot folder).
 
     Returns:
         ScreenshotResult containing path, dimensions, window title, clipboard status, and optional AI analysis.
     """
-    _ensure_dirs()
-    cleanup_old_screenshots(days=7, max_files=100)
+    target_dir = output_dir or get_screenshots_dir()
+    _ensure_dirs(target_dir)
+
+    # Run cleanup asynchronously in background thread so disk/cloud sync never stalls captures
+    threading.Thread(
+        target=lambda: cleanup_old_screenshots(days=7, max_files=100, target_dir=target_dir),
+        daemon=True
+    ).start()
 
     # 1. Countdown delay if requested
     if delay > 0:
-        for _ in range(delay):
-            time.sleep(1)
+        time.sleep(delay)
 
     # 2. Identify active window details
     active_title, bbox = get_active_window_info()
     safe_title = _sanitize_title(active_title)
 
-    # 3. Capture image
+    # 3. Capture image safely with multi-tiered fallback
     img = None
     captured_mode = mode.lower()
 
     if captured_mode in ("window", "active_window") and bbox:
         try:
-            img = ImageGrab.grab(bbox=bbox, all_screens=True)
+            img = ImageGrab.grab(bbox=bbox)
         except Exception:
-            img = None
+            try:
+                img = ImageGrab.grab(bbox=bbox, all_screens=True)
+            except Exception:
+                img = None
 
     if img is None:
-        # Fullscreen (captures multi-monitor desktop or primary display)
+        # Fullscreen: try all_screens, then single screen, then pyautogui fallback
         try:
             img = ImageGrab.grab(all_screens=True)
             captured_mode = "fullscreen"
         except Exception:
-            import pyautogui
-            img = pyautogui.screenshot()
-            captured_mode = "fullscreen"
+            try:
+                img = ImageGrab.grab()
+                captured_mode = "fullscreen"
+            except Exception:
+                try:
+                    import pyautogui
+                    img = pyautogui.screenshot()
+                    captured_mode = "fullscreen"
+                except Exception:
+                    img = None
 
-    # 4. Save to organized DODO folder
+    # Handle locked / inaccessible workstation gracefully without crashing
+    if img is None:
+        msg = "⚠️ Unable to capture screen. The display may be locked, sleeping, or inaccessible."
+        return ScreenshotResult({
+            "success": False,
+            "path": "",
+            "filename": "",
+            "mode": captured_mode,
+            "window_title": active_title,
+            "dimensions": (0, 0),
+            "file_size_kb": 0,
+            "copied_to_clipboard": False,
+            "analysis": None,
+            "message": msg,
+            "error": "Display capture unavailable"
+        })
+
+    # 4. Save to organized target folder
     now = datetime.now()
     ts = now.strftime("%Y%m%d_%H%M%S")
     filename = f"DODO_{ts}_{safe_title}.png"
-    filepath = os.path.join(SCREENSHOTS_DIR, filename)
+    filepath = os.path.join(target_dir, filename)
 
-    img.save(filepath, format="PNG")
+    try:
+        img.save(filepath, format="PNG")
+    except Exception as e:
+        return ScreenshotResult({
+            "success": False,
+            "path": "",
+            "filename": "",
+            "mode": captured_mode,
+            "window_title": active_title,
+            "dimensions": img.size,
+            "file_size_kb": 0,
+            "copied_to_clipboard": False,
+            "analysis": None,
+            "message": f"Failed to save screenshot: {e}",
+            "error": str(e)
+        })
 
     # 5. Audio feedback
     if play_sound:
         threading.Thread(target=play_shutter_sound, daemon=True).start()
 
-    # 6. Windows Clipboard sync
+    # 6. Windows Clipboard sync (safe via win32clipboard)
     copied = False
     if copy_clipboard:
         copied = copy_image_to_clipboard(img)
@@ -352,7 +409,7 @@ def take_screenshot(
 
     # 8. Record in catalog
     width, height = img.size
-    file_size_kb = round(os.path.getsize(filepath) / 1024, 1)
+    file_size_kb = round(os.path.getsize(filepath) / 1024, 1) if os.path.exists(filepath) else 0
 
     record = {
         "filename": filename,
@@ -411,10 +468,11 @@ def open_latest_screenshot() -> str:
 
 def open_screenshots_folder() -> str:
     """Open the DODO Screenshots directory in Windows Explorer."""
-    _ensure_dirs()
+    target_dir = get_screenshots_dir()
+    _ensure_dirs(target_dir)
     try:
-        os.startfile(SCREENSHOTS_DIR)
-        return f"Opened screenshots directory: {SCREENSHOTS_DIR}"
+        os.startfile(target_dir)
+        return f"Opened screenshots directory: {target_dir}"
     except Exception as e:
         return f"Failed to open directory: {e}"
 

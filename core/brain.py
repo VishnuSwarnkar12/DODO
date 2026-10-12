@@ -98,6 +98,11 @@ INTENT_PATTERNS = [
                         r"aawaz kam", r"volume kam"]),
     ("mute",           [r"\bmute\b", r"unmute"]),
     ("lock_screen",    [r"lock\s*(the)?\s*screen", r"\block\b"]),
+    # ── Email & Messaging ───────────────────────────────────────────────────
+    ("email",          [r"\b(?:send|draft|write)\s+(?:an?\s+)?(?:email|mail)\b",
+                        r"\b(?:email|mail)\s+(?:to\b|karo\b)",
+                        r"\bemail\s+history\b", r"\bsent\s+emails?\b"]),
+
     ("screenshot",     [r"screenshot", r"screen\s*shot", r"capture\s*(the)?\s*screen",
                         r"take\s+a?\s*ss", r"snap\s*screen", r"screenshot\s*(folder|directory)",
                         r"latest\s*screenshot", r"active\s*window\s*screenshot",
@@ -284,7 +289,8 @@ def _classify_single(text: str, raw: str) -> dict:
             "action": params["action"],
             "mode": params["mode"],
             "delay": params["delay"],
-            "analyze": params["analyze"]
+            "analyze": params["analyze"],
+            "folder": params.get("folder")
         }]
 
     elif intent == "battery":
@@ -292,6 +298,17 @@ def _classify_single(text: str, raw: str) -> dict:
 
     elif intent in ("restart", "sleep"):
         plan = [{"type": "system_command", "action": intent, "value": None}]
+
+    elif intent == "email":
+        params = _extract_email_params(norm, raw)
+        plan = [{
+            "type": "email",
+            "action": params["action"],
+            "to": params["to"],
+            "subject": params["subject"],
+            "body": params["body"],
+            "attachments": params["attachments"],
+        }]
 
     elif intent == "open_site":
         site = _extract_site(norm)
@@ -536,9 +553,15 @@ def _extract_fact(text: str) -> str:
 
 
 def _extract_screenshot_params(text: str) -> dict:
-    """Extract mode, delay, and target action from screenshot commands."""
+    """Extract mode, delay, folder, and target action from screenshot commands."""
     action = "capture"
-    if re.search(r"\b(open|show)\b.*\b(folder|directory)\b", text):
+    folder = None
+
+    m_folder = re.search(r"(?:save|store|keep|put|set)\s+(?:all\s+)?(?:dodo\s+)?screenshots?\s+(?:to|in)\s+[\"']?([^\"'\n]+)[\"']?", text)
+    if m_folder:
+        action = "set_folder"
+        folder = m_folder.group(1).strip()
+    elif re.search(r"\b(open|show)\b.*\b(folder|directory)\b", text):
         action = "open_folder"
     elif re.search(r"\b(open|show|view|latest)\b.*\b(screenshot|image)\b", text):
         action = "open_latest"
@@ -556,5 +579,47 @@ def _extract_screenshot_params(text: str) -> dict:
         "mode": mode,
         "delay": delay,
         "analyze": analyze,
+        "folder": folder,
+    }
+
+
+def _extract_email_params(norm: str, raw: str) -> dict:
+    """Extract recipient, subject, body, and attachments from email commands."""
+    action = "send"
+    if re.search(r"\b(history|sent emails?|previous emails?|recent emails?)\b", norm):
+        return {"action": "history", "to": None, "subject": None, "body": None, "attachments": []}
+
+    # Extract email address
+    m_email = re.search(r"\b([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)\b", raw)
+    to = m_email.group(1).strip() if m_email else ""
+    if not to:
+        m_to = re.search(r"\b(?:to|ko)\s+([a-zA-Z0-9_.+-]+)\b", raw)
+        if m_to:
+            to = m_to.group(1).strip()
+
+    # Extract attachments
+    attachments = []
+    if re.search(r"\b(?:with|attach(?:ing)?|attached)\s+(?:the\s+)?(?:latest\s+)?screenshot\b", norm):
+        attachments.append("latest_screenshot")
+    else:
+        m_att = re.search(r"(?:attach|with\s+(?:file|doc|document)?)\s+[\"']?([^\"'\n,]+)[\"']?", raw, re.IGNORECASE)
+        if m_att:
+            val = m_att.group(1).strip()
+            if val and not any(kw in val.lower() for kw in ("subject", "body", "email", "mail")):
+                attachments.append(val)
+
+    # Extract subject
+    m_subj = re.search(r"(?:subject|regarding|about)\s+[\"']?([^\"'\n]+)[\"']?", raw, re.IGNORECASE)
+    subject = m_subj.group(1).strip() if m_subj else "Message from DODO"
+
+    # Default body
+    body = raw
+
+    return {
+        "action": action,
+        "to": to,
+        "subject": subject,
+        "body": body,
+        "attachments": attachments
     }
 
