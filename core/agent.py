@@ -574,6 +574,114 @@ TOOLS = [
             }
         }
     },
+
+    # ── Adaptive Learning / Self-Update tools ─────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "self_update",
+            "description": (
+                "Apply a targeted code improvement to one of DODO's own source files (skills/, core/, ui/ only). "
+                "Use when the user says 'update yourself', 'improve your code', 'fix that in your code', "
+                "'apply this learning', 'patch yourself', 'self-improve', 'adaptive learning'. "
+                "Read the file first with read_own_file, then supply exact old_text and new_text. "
+                "The change is logged. Push to GitHub is a separate step requiring user approval."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filepath": {
+                        "type": "string",
+                        "description": "Relative path inside the DODO project, e.g. 'skills/web_search.py'"
+                    },
+                    "old_text": {
+                        "type": "string",
+                        "description": "The EXACT verbatim text currently in the file to be replaced."
+                    },
+                    "new_text": {
+                        "type": "string",
+                        "description": "The replacement text."
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Short human-readable reason for the change (shown in update log)."
+                    }
+                },
+                "required": ["filepath", "old_text", "new_text", "reason"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "push_update",
+            "description": (
+                "Push all recent self-applied code changes to GitHub. "
+                "Will display a user approval dialog — nothing is pushed until Approve is clicked. "
+                "Use when the user says 'push your changes', 'push to github', 'publish update', 'commit and push'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "commit_message": {
+                        "type": "string",
+                        "description": "Git commit message describing the changes."
+                    }
+                },
+                "required": ["commit_message"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_update_history",
+            "description": (
+                "Show a log of all self-applied code updates. Use when user asks: "
+                "'show update log', 'what did you change', 'your update history', 'adaptive learning log'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Number of most recent entries to show (default: 10)"
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_own_file",
+            "description": (
+                "Read the source code of one of DODO's own files to inspect it before patching. "
+                "Always call this before self_update to verify the exact old_text."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filepath": {
+                        "type": "string",
+                        "description": "Relative path, e.g. 'skills/web_search.py'"
+                    }
+                },
+                "required": ["filepath"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_own_files",
+            "description": "List all DODO source files in skills/, core/, ui/ that can be inspected or patched.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
 ]
 
 # ── System prompt ─────────────────────────────────────────────────────────────
@@ -602,6 +710,15 @@ CRITICAL — TOOL USAGE RULES:
 - For "open [app]" → use open_app tool. NEVER use run_command.
 - run_command is ONLY for: running Python scripts, compiling C/C++ code, git commands, pip installs. Nothing else.
 - NEVER open cmd/terminal unless the user explicitly asks to run code or a command.
+
+ADAPTIVE LEARNING / SELF-UPDATE RULES:
+- You CAN improve your own source code using the self_update tool.
+- ALWAYS call read_own_file FIRST to read the file and find the exact old_text before patching.
+- Patches must be minimal and surgical — change ONLY what is needed, never rewrite whole files.
+- NEVER patch config.json, memory/, or .git/ — only skills/, core/, ui/, README.md.
+- After a successful patch, tell the user what changed and offer to push to GitHub.
+- GitHub push ALWAYS requires user approval — the push_update tool shows a dialog automatically.
+- Track all changes with get_update_history so the user can audit everything.
 
 CRITICAL — HONESTY RULES:
 - NEVER claim to see, confirm, or verify any UI state (browser tabs, playing videos, open windows). You cannot see the screen.
@@ -957,6 +1074,54 @@ def _execute_tool(name: str, args: dict) -> str:
         elif name == "check_my_expression":
             import skills.face_expression as fe
             return fe.get_current_expression()
+
+        # ── Adaptive Learning / Self-Update ───────────────────────────────────
+        elif name == "self_update":
+            import skills.self_updater as su
+            result = su.self_update(
+                filepath=args["filepath"],
+                old_text=args["old_text"],
+                new_text=args["new_text"],
+                reason=args.get("reason", "No reason given"),
+            )
+            if result["success"]:
+                diff_preview = result.get("diff", "")[:800]
+                return (
+                    f"✅ Patch applied successfully to `{result['filepath']}`.\n"
+                    f"Reason: {result['reason']}\n\n"
+                    f"Diff preview:\n```diff\n{diff_preview}\n```\n\n"
+                    "Update logged. Say 'push your changes' when you want me to push to GitHub."
+                )
+            else:
+                return f"❌ Patch failed: {result.get('error', 'Unknown error')}"
+
+        elif name == "push_update":
+            import skills.self_updater as su
+            commit_msg = args.get("commit_message", "DODO self-update: adaptive learning patch")
+            push_result = su.commit_and_push(commit_msg)
+            if push_result.get("pushed"):
+                return (
+                    f"🚀 Successfully pushed to GitHub!\n"
+                    f"Commit: '{commit_msg}'\n"
+                    f"Output:\n{push_result.get('output', '')[:300]}"
+                )
+            elif not push_result.get("approved"):
+                return "🔒 Push cancelled — you did not approve."
+            else:
+                return f"❌ Push failed: {push_result.get('error', 'Unknown error')}\n{push_result.get('output', '')[:200]}"
+
+        elif name == "get_update_history":
+            import skills.self_updater as su
+            limit = int(args.get("limit", 10))
+            return su.format_update_history(limit)
+
+        elif name == "read_own_file":
+            import skills.self_updater as su
+            return su.read_own_file(args["filepath"])
+
+        elif name == "list_own_files":
+            import skills.self_updater as su
+            return su.list_own_files()
 
         return f"Unknown tool: {name}"
 

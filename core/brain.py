@@ -197,6 +197,17 @@ INTENT_PATTERNS = [
                         r"mujhe batao", r"bolo", r"samjhao",
                         r"write\s+.*(code|program)", r"help me",
                         r"give me", r"show me", r"teach me"]),
+
+    # ── Adaptive Learning / Self-Update ──────────────────────────────────────
+    ("self_update",    [r"update\s*(your|urself|yourself)", r"improve\s*(your|urself|yourself)",
+                        r"patch\s*(your|urself|yourself)", r"self.?improv",
+                        r"adaptive\s*learning", r"apply\s*(this\s+)?learning",
+                        r"fix.*your.*code", r"update.*your.*code",
+                        r"improve.*skill", r"enhance.*skill"]),
+    ("update_history", [r"update\s*(log|history|report)", r"what.*did.*you.*change",
+                        r"show.*update", r"learning.*log", r"change.*log"]),
+    ("push_update",    [r"push.*your.*change", r"push.*to.*github",
+                        r"publish.*update", r"commit.*and.*push"]),
 ]
 
 
