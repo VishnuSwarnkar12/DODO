@@ -126,6 +126,52 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "queue_song",
+            "description": "Add a song to the playback queue. The song will play after the current one finishes. Auto-vibe-queue keeps 5 songs ahead automatically.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Song name or artist to queue"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "skip_song",
+            "description": "Skip the currently playing song and play the next one in the queue.",
+            "parameters": {"type": "object", "properties": {}}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "show_queue",
+            "description": "Show what's currently playing and what songs are coming up in the queue.",
+            "parameters": {"type": "object", "properties": {}}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "clear_queue",
+            "description": "Clear all songs from the upcoming queue (current song keeps playing).",
+            "parameters": {"type": "object", "properties": {}}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "now_playing",
+            "description": "Tell the user what song is currently playing.",
+            "parameters": {"type": "object", "properties": {}}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "youtube_search",
             "description": "Open YouTube in browser and show search results (does NOT play audio). Use play_music instead if user wants to actually hear the song.",
             "parameters": {
@@ -705,11 +751,22 @@ SECURITY RULES (never break these):
 
 CRITICAL — TOOL USAGE RULES:
 - For "play [song]" or "play music" → use play_music tool. NEVER use run_command.
+- For "queue/add [song]" → use queue_song tool.
+- For "skip" or "next song" → use skip_song tool.
+- For "what's playing" or "now playing" → use now_playing tool.
+- For "show queue" or "what's next" → use show_queue tool.
+- For "clear queue" → use clear_queue tool.
 - For "send email" or "email someone" → use send_email tool. NEVER use run_command.
 - For "open [website]" → use open_website tool. NEVER use run_command.
 - For "open [app]" → use open_app tool. NEVER use run_command.
 - run_command is ONLY for: running Python scripts, compiling C/C++ code, git commands, pip installs. Nothing else.
 - NEVER open cmd/terminal unless the user explicitly asks to run code or a command.
+
+MUSIC QUEUE SYSTEM:
+- When a song plays, DODO auto-queues 5 vibe-similar songs in the background.
+- The queue refills automatically — always 5 songs ahead.
+- Users can manually queue songs with "queue [song]" or "play [song] next".
+- When user says "skip" / "next" → skip_song. When user asks "what's playing" → now_playing.
 
 ADAPTIVE LEARNING / SELF-UPDATE RULES:
 - You CAN improve your own source code using the self_update tool.
@@ -800,6 +857,26 @@ def _execute_tool(name: str, args: dict) -> str:
         elif name == "stop_music":
             import skills.music_player as mp
             return mp.stop_music()
+
+        elif name == "queue_song":
+            import skills.music_player as mp
+            return mp.queue_song(args["query"])
+
+        elif name == "skip_song":
+            import skills.music_player as mp
+            return mp.skip_song()
+
+        elif name == "show_queue":
+            import skills.music_player as mp
+            return mp.show_queue()
+
+        elif name == "clear_queue":
+            import skills.music_player as mp
+            return mp.clear_queue()
+
+        elif name == "now_playing":
+            import skills.music_player as mp
+            return mp.now_playing()
 
         elif name == "youtube_search":
             import skills.browser_control as bc

@@ -117,7 +117,25 @@ def execute(result: dict, confirm_callback=None) -> str:
                     browser.youtube_search(value)
                     responses.append(f"Playing '{value}' on YouTube.")
 
-            # ── File operations ──────────────────────────────────────────────
+            # ── Music / Queue ─────────────────────────────────────────────────
+            elif step_type == "music":
+                import skills.music_player as mp
+                if action == "play_song":
+                    responses.append(mp.play_song(value))
+                elif action == "stop_music":
+                    responses.append(mp.stop_music())
+                elif action == "queue_song":
+                    responses.append(mp.queue_song(value))
+                elif action == "skip_song":
+                    responses.append(mp.skip_song())
+                elif action == "show_queue":
+                    responses.append(mp.show_queue())
+                elif action == "now_playing":
+                    responses.append(mp.now_playing())
+                elif action == "clear_queue":
+                    responses.append(mp.clear_queue())
+
+
             elif step_type == "file_operation":
                 requires_confirm = step.get("requires_confirm", False)
 

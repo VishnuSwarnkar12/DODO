@@ -208,6 +208,20 @@ INTENT_PATTERNS = [
                         r"show.*update", r"learning.*log", r"change.*log"]),
     ("push_update",    [r"push.*your.*change", r"push.*to.*github",
                         r"publish.*update", r"commit.*and.*push"]),
+
+    # ── Music Queue ───────────────────────────────────────────────────────────
+    ("queue_song",     [r"queue\s+.+", r"add\s+.+\s+to\s+(the\s+)?queue",
+                        r"play\s+.+\s+next", r"next\s+play\s+.+",
+                        r"line\s+up\s+.+", r"put\s+.+\s+in\s+(the\s+)?queue"]),
+    ("skip_song",      [r"\bskip\b", r"next\s+song", r"agla\s+song", r"skip\s+(this|song|track)",
+                        r"change\s+(the\s+)?song", r"next\s+track"]),
+    ("show_queue",     [r"show\s+(the\s+)?queue", r"what'?s?\s+(in\s+)?(the\s+)?queue",
+                        r"what'?s?\s+next", r"upcoming\s+songs", r"playlist",
+                        r"show\s+playlist"]),
+    ("now_playing",    [r"what'?s?\s+playing", r"what\s+(song|track)\s+is\s+(this|playing)",
+                        r"now\s+playing", r"current\s+song", r"abhi\s+(kya|kaunsa)\s+(baj|chal)"]),
+    ("clear_queue",    [r"clear\s+(the\s+)?queue", r"empty\s+(the\s+)?queue",
+                        r"remove\s+all\s+songs", r"flush\s+(the\s+)?queue"]),
 ]
 
 
@@ -431,6 +445,25 @@ def _classify_single(text: str, raw: str) -> dict:
 
     elif intent == "ollama_chat":
         plan = [{"type": "ollama_chat", "action": "chat", "value": raw}]
+
+    elif intent == "queue_song":
+        query = re.sub(
+            r"(queue|add|to\s+(the\s+)?queue|play\s+next|next\s+play|line\s+up|put\s+in\s+(the\s+)?queue)\s*",
+            "", norm
+        ).strip() or raw
+        plan = [{"type": "music", "action": "queue_song", "value": query}]
+
+    elif intent == "skip_song":
+        plan = [{"type": "music", "action": "skip_song", "value": None}]
+
+    elif intent == "show_queue":
+        plan = [{"type": "music", "action": "show_queue", "value": None}]
+
+    elif intent == "now_playing":
+        plan = [{"type": "music", "action": "now_playing", "value": None}]
+
+    elif intent == "clear_queue":
+        plan = [{"type": "music", "action": "clear_queue", "value": None}]
 
     else:
         # Unknown → send to Groq
