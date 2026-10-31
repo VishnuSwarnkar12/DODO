@@ -213,6 +213,11 @@ def main():
     update_session()
     cfg = load_config()
 
+    # Launch PySide6 QML Fluid Interface if requested
+    if "--qml" in sys.argv or "--fluid" in sys.argv or cfg.get("ui_mode") == "qml":
+        from ui.launch_ui import main as launch_qml_ui
+        return launch_qml_ui()
+
     # Import here to avoid circular issues at module level
     from ui.control_panel import ControlPanel
 

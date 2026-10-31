@@ -342,13 +342,22 @@ def execute(result: dict, confirm_callback=None) -> str:
             # ── Web search ───────────────────────────────────────────────────
             elif step_type == "web_search":
                 if action == "search":
-                    # Try quick answer first, then full search
                     answer = web_search.quick_answer(value)
                     if answer:
                         responses.append(answer)
                     else:
                         results = web_search.search(value)
                         responses.append(results)
+                elif action == "search_news":
+                    responses.append(web_search.search_news(value))
+                elif action == "stackoverflow":
+                    responses.append(web_search.search_stackoverflow(value))
+                elif action == "wikipedia":
+                    responses.append(web_search.get_wikipedia(value))
+                elif action == "github_trending":
+                    responses.append(web_search.get_github_trending(value or ""))
+                elif action == "pypi":
+                    responses.append(web_search.get_pypi_info(value))
                 elif action == "summarize":
                     # If value looks like a URL, fetch and summarize it
                     if value and ("http" in value or "." in value.split()[-1] if value.split() else False):

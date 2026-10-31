@@ -21,11 +21,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "web_search",
-            "description": "Search the internet for real-time info, news, facts, prices, sports, current events. Returns snippets only. If user gives a direct URL or wants full page content, use read_url instead.",
+            "description": "Search the internet for real-time info, facts, current events, prices, sports scores. Searches multiple engines (DDG + Bing fallback), deduplicates, ranks results. Set deep=true to also scrape and extract full text from top pages.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "Search query"}
+                    "query": {"type": "string", "description": "Search query"},
+                    "deep":  {"type": "boolean", "description": "If true, scrape full page content from top results (slower but more detailed)"},
+                    "max_results": {"type": "integer", "description": "Number of results (default 5, max 10)"}
                 },
                 "required": ["query"]
             }
@@ -34,8 +36,78 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "search_news",
+            "description": "Search for REAL-TIME news articles. Uses Google News RSS feed — no API key, always fresh. Use for: 'latest news about X', 'what happened with Y', 'news today'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "News topic or keyword"},
+                    "max_items": {"type": "integer", "description": "Number of news items (default 6)"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_stackoverflow",
+            "description": "Search StackOverflow for programming questions and answers. Use when user asks coding questions, error messages, 'how to do X in Python', etc.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Programming question or error message"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_wikipedia",
+            "description": "Fetch a Wikipedia article summary for any topic, person, place, concept, or event.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string", "description": "Topic to look up on Wikipedia"}
+                },
+                "required": ["topic"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_github_trending",
+            "description": "Fetch currently trending GitHub repositories. Optionally filter by programming language.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "language": {"type": "string", "description": "Programming language filter (optional, e.g. 'python', 'javascript')"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_pypi_info",
+            "description": "Fetch information about a Python package from PyPI — version, description, homepage.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "package": {"type": "string", "description": "Python package name"}
+                },
+                "required": ["package"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "read_url",
-            "description": "Fetch and READ the actual content of any webpage — blog posts, news articles, sports scores, any URL. Use this when: user gives a direct URL, user wants latest blog post, user wants to read live content from a specific site. Much better than web_search for specific pages.",
+            "description": "Fetch and extract clean readable text from any webpage. Uses trafilatura + BeautifulSoup for best extraction. Use when user gives a specific URL or asks to read/summarize a page.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -905,6 +977,17 @@ CRITICAL — TOOL USAGE RULES:
 - run_command is ONLY for: running Python scripts, compiling C/C++ code, git commands, pip installs. Nothing else.
 - NEVER open cmd/terminal unless the user explicitly asks to run code or a command.
 
+WEB SEARCH INTELLIGENCE — use the RIGHT tool:
+- General facts / real-time info → web_search (fast, multi-source, cached)
+- Latest NEWS → search_news (Google News RSS, always fresh)
+- Programming questions / errors → search_stackoverflow (SO API)
+- Person / place / concept → get_wikipedia (Wikipedia REST API)
+- GitHub repos → get_github_trending (optional language filter)
+- Python package info → get_pypi_info
+- Summarize a URL → read_url (trafilatura extraction)
+- Deep research (scrape top pages) → web_search with deep=true
+- "Search on Bing/Reddit/GitHub for X" → web_search_engine with engine param
+
 MUSIC QUEUE SYSTEM:
 - When a song plays, DODO auto-queues 5 vibe-similar songs in the background.
 - The queue refills automatically — always 5 songs ahead.
@@ -934,10 +1017,34 @@ def _execute_tool(name: str, args: dict) -> str:
     try:
         if name == "web_search":
             import skills.web_search as ws
-            answer = ws.quick_answer(args["query"])
-            if answer:
+            q    = args["query"]
+            deep = args.get("deep", False)
+            n    = min(int(args.get("max_results", 5)), 10)
+            # Try instant answer first
+            answer = ws.quick_answer(q)
+            if answer and not deep:
                 return answer
-            return ws.search(args["query"], max_results=6)
+            return ws.search(q, max_results=n, deep=deep)
+
+        elif name == "search_news":
+            import skills.web_search as ws
+            return ws.search_news(args["query"], max_items=int(args.get("max_items", 6)))
+
+        elif name == "search_stackoverflow":
+            import skills.web_search as ws
+            return ws.search_stackoverflow(args["query"])
+
+        elif name == "get_wikipedia":
+            import skills.web_search as ws
+            return ws.get_wikipedia(args["topic"])
+
+        elif name == "get_github_trending":
+            import skills.web_search as ws
+            return ws.get_github_trending(args.get("language", ""))
+
+        elif name == "get_pypi_info":
+            import skills.web_search as ws
+            return ws.get_pypi_info(args["package"])
 
         elif name == "read_url":
             import skills.web_search as ws
@@ -945,7 +1052,7 @@ def _execute_tool(name: str, args: dict) -> str:
             if not url.startswith("http"):
                 url = "https://" + url
             content = ws.summarize_url(url)
-            return f"Page content from {url}:\n\n{content}"
+            return f"📄 Content from {url}:\n\n{content}"
 
         elif name == "get_weather":
             import skills.weather as w

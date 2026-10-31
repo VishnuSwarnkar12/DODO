@@ -143,6 +143,21 @@ INTENT_PATTERNS = [
     ("summarize",      [r"\bsummarize\b", r"\bsummary\b", r"give me.*(summary|gist|overview)",
                         r"read this article", r"tldr", r"summarise"]),
 
+    # ── Specialised search (BEFORE generic web_search) ───────────────────────
+    ("search_news",    [r"\b(latest|breaking|recent|today'?s?)\s+news\b",
+                        r"\bnews\s+(about|on|for)\b",
+                        r"\bwhat('s| is) happening\b",
+                        r"\bnews\b.*\btoday\b"]),
+    ("stackoverflow",  [r"\bstackoverflow\b", r"\bhow\s+to\b.*\bin\s+(python|java|c\+\+|js|javascript|react|node)\b",
+                        r"\b(error|exception|bug)\b.*\b(fix|solve|resolve)\b",
+                        r"\bcode\s+(error|fix|help)\b"]),
+    ("wikipedia",      [r"\b(wikipedia|wiki)\b", r"^who\s+(is|was)\s+",
+                        r"^what\s+is\s+[A-Z]", r"^tell me about\s+"]),
+    ("github_trending",[r"github\s+trending", r"trending\s+(repos?|projects?|on\s+github)",
+                        r"popular\s+(repos?|projects?)\s+(on\s+)?github"]),
+    ("pypi_info",      [r"\bpypi\b", r"pip\s+(install|info|search)\s+\w+",
+                        r"python\s+package\s+\w+"]),
+
     # ── Browser / Internet (BEFORE open_app!) ────────────────────────────
     ("open_incognito",  [r"incognito", r"private\s*(window|mode|browser|tab)?",
                          r"open.*private", r"secretly\s+open",
@@ -465,10 +480,31 @@ def _classify_single(text: str, raw: str) -> dict:
         target = "all" if "all" in norm else "completed"
         plan = [{"type": "reminder", "action": "clear", "value": target}]
 
-    # ── New: Web search ──────────────────────────────────────────────────────
+    # ── Web search ────────────────────────────────────────────────────────────
     elif intent == "web_search":
         query = _extract_search_query(norm)
         plan = [{"type": "web_search", "action": "search", "value": query}]
+
+    elif intent == "search_news":
+        query = re.sub(r"(latest|breaking|recent|today'?s?|news|about|on|for|what|is|happening)\s*", " ", norm).strip() or raw
+        plan = [{"type": "web_search", "action": "search_news", "value": query}]
+
+    elif intent == "stackoverflow":
+        query = re.sub(r"(stackoverflow|how|to|in|code|error|fix|solve|resolve|bug|exception|help)\s*", " ", norm).strip() or raw
+        plan = [{"type": "web_search", "action": "stackoverflow", "value": query}]
+
+    elif intent == "wikipedia":
+        query = re.sub(r"(wikipedia|wiki|who|is|was|what|are|tell|me|about)\s*", " ", norm).strip() or raw
+        plan = [{"type": "web_search", "action": "wikipedia", "value": query}]
+
+    elif intent == "github_trending":
+        lang_m = re.search(r"(python|javascript|js|typescript|rust|go|java|c\+\+|cpp|kotlin|swift|ruby)", norm)
+        lang = lang_m.group(1) if lang_m else ""
+        plan = [{"type": "web_search", "action": "github_trending", "value": lang}]
+
+    elif intent == "pypi_info":
+        pkg = re.sub(r"(pypi|pip|install|info|search|python|package)\s*", " ", norm).strip() or raw
+        plan = [{"type": "web_search", "action": "pypi", "value": pkg}]
 
     elif intent == "summarize":
         topic = re.sub(r"(?:summarize|summarise|summary|give me|tldr|gist|overview|of|the|a)\s*", "", norm).strip()
