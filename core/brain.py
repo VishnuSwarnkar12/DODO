@@ -143,12 +143,38 @@ INTENT_PATTERNS = [
     ("summarize",      [r"\bsummarize\b", r"\bsummary\b", r"give me.*(summary|gist|overview)",
                         r"read this article", r"tldr", r"summarise"]),
 
-    # ── Browser / Internet (BEFORE open_app!) ────────────────────────────────
+    # ── Browser / Internet (BEFORE open_app!) ────────────────────────────
+    ("open_incognito",  [r"incognito", r"private\s*(window|mode|browser|tab)?",
+                         r"open.*private", r"secretly\s+open",
+                         r"without\s+(history|tracking)", r"private\s+browsing"]),
+    ("translate",      [r"translate\s+.+\s+(to|in|into)\s+\w+",
+                        r"\btranslate\b", r"translation\s+of"]),
+    ("maps",           [r"(open|show|find)\s+(on\s+)?maps?",
+                        r"directions?\s+(to|from)",
+                        r"how\s+to\s+get\s+to", r"where\s+is\s+\w+"]),
+    ("open_downloads", [r"open\s+downloads?(\s+folder)?",
+                        r"show\s+downloads?", r"downloads?\s+folder"]),
+    ("add_bookmark",   [r"bookmark\s+(this|it|the\s+site|this\s+page)",
+                        r"save\s+(this\s+)?(site|page|url|link)",
+                        r"remember\s+(this\s+)?(site|url|link|page)"]),
+    ("open_bookmark",  [r"open\s+(my\s+)?bookmark",
+                        r"go\s+to\s+(my\s+)?bookmark"]),
+    ("list_bookmarks", [r"(show|list|my)\s+bookmarks?",
+                        r"what\s+are\s+(my\s+)?bookmarks?"]),
+    ("delete_bookmark",[r"delete\s+(my\s+)?bookmark", r"remove\s+(my\s+)?bookmark"]),
+    ("browser_history",[r"browser\s+history", r"recent\s+sites?",
+                        r"go\s+back\s+to\s+(last|previous)\s+site",
+                        r"reopen\s+(last|previous)\s+site",
+                        r"clear\s+browser\s+history"]),
+    ("search_engine",  [r"search\s+(on|using|with|via)\s+\w+",
+                        r"(bing|duckduckgo|ddg)\s+search",
+                        r"search\s+(images?|news)\s+(for|of|about)"]),
     ("open_site",      [r"open\s+\w+\.(com|org|net|io|in|co)\b",
                         r"go\s+to\s+\w+", r"navigate\s+to",
                         r"open\s+(youtube|google|github|gmail|reddit|twitter|"
                         r"spotify|netflix|amazon|linkedin|instagram|whatsapp|"
-                        r"flipkart|x|facebook|stackoverflow|chatgpt)\b"]),
+                        r"flipkart|x|facebook|stackoverflow|chatgpt|discord|"
+                        r"telegram|twitch|leetcode|replit|claude|gemini|perplexity)\b"]),
     ("youtube_play",   [r"(play|search)\s+.*\bon\s+youtube\b",
                         r"\byoutube\b.*(play|search)",
                         r"(play|search)\s+.*\byoutube\b",
@@ -341,6 +367,10 @@ def _classify_single(text: str, raw: str) -> dict:
             "attachments": params["attachments"],
         }]
 
+    elif intent == "open_incognito":
+        site = re.sub(r"(incognito|private|window|mode|secretly|open|without|history|tracking|browsing)\s*", "", norm).strip() or "google"
+        plan = [{"type": "browser", "action": "open_incognito", "value": site}]
+
     elif intent == "open_site":
         site = _extract_site(norm)
         plan = [{"type": "internet_action", "action": "open_site", "value": site}]
@@ -348,6 +378,53 @@ def _classify_single(text: str, raw: str) -> dict:
     elif intent == "youtube_play":
         query = _extract_youtube_query(norm)
         plan = [{"type": "internet_action", "action": "youtube_play", "value": query}]
+
+    elif intent == "search_engine":
+        _engines = ["google","bing","duckduckgo","ddg","reddit","github","wikipedia",
+                    "stackoverflow","images","news","scholar","pypi","npm","amazon","translate"]
+        engine = next((e for e in _engines if e in norm), "google")
+        query = re.sub(r"search\s*(on|using|with|via|" + "|".join(_engines) + r")\s*(for|about)?\s*", "", norm).strip() or raw
+        plan = [{"type": "browser", "action": "search_engine", "value": query, "engine": engine}]
+
+    elif intent == "add_bookmark":
+        name_m = re.search(r"(?:as|called|named?)\s+([\w\s]+)$", norm)
+        bname = name_m.group(1).strip() if name_m else "my bookmark"
+        url_m  = re.search(r"https?://[\S]+", raw)
+        burl   = url_m.group(0) if url_m else bname
+        plan = [{"type": "browser", "action": "add_bookmark", "name": bname, "value": burl}]
+
+    elif intent == "open_bookmark":
+        bname = re.sub(r"(open|go\s+to|my)?\s*bookmark\s*", "", norm).strip() or ""
+        plan = [{"type": "browser", "action": "open_bookmark", "value": bname}]
+
+    elif intent == "list_bookmarks":
+        plan = [{"type": "browser", "action": "list_bookmarks", "value": None}]
+
+    elif intent == "delete_bookmark":
+        bname = re.sub(r"(delete|remove|my)?\s*bookmark\s*", "", norm).strip() or ""
+        plan = [{"type": "browser", "action": "delete_bookmark", "value": bname}]
+
+    elif intent == "browser_history":
+        if "clear" in norm:
+            _bh_action = "clear"
+        elif any(w in norm for w in ("reopen", "go back", "last", "previous")):
+            _bh_action = "open_last"
+        else:
+            _bh_action = "show"
+        plan = [{"type": "browser", "action": "browser_history", "value": _bh_action}]
+
+    elif intent == "translate":
+        lang_m = re.search(r"(to|in|into)\s+([\w]+)$", norm)
+        lang = lang_m.group(2).strip() if lang_m else "english"
+        text = re.sub(r"translate\s*|\s*(to|in|into)\s+[\w]+$", "", norm).strip() or raw
+        plan = [{"type": "browser", "action": "translate", "text": text, "value": lang}]
+
+    elif intent == "maps":
+        loc = re.sub(r"(open|show|find|on|maps?|directions?|how|get|where|is)\s*", " ", norm).strip() or raw
+        plan = [{"type": "browser", "action": "maps", "value": loc}]
+
+    elif intent == "open_downloads":
+        plan = [{"type": "browser", "action": "open_downloads", "value": None}]
 
     # ── New: Weather ─────────────────────────────────────────────────────────
     elif intent == "weather":

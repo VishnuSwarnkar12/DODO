@@ -186,7 +186,150 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "web_search_engine",
+            "description": "Search the web using a specific engine. Engines: google, ddg (DuckDuckGo), bing, youtube, reddit, github, wikipedia, amazon, flipkart, stackoverflow, maps, images, news, scholar, pypi, npm, translate.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query"},
+                    "engine": {"type": "string", "description": "Search engine name (default: google)"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_incognito",
+            "description": "Open a URL or site in an incognito/private browser window. Use when user says 'incognito', 'private', 'secretly open', 'without history'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "URL or site name to open privately"},
+                    "browser": {"type": "string", "description": "Browser to use: chrome, firefox, edge, brave (optional)"}
+                },
+                "required": ["url"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_bookmark",
+            "description": "Save a website as a named bookmark for quick access later. Use when user says 'bookmark this', 'save this site', 'remember this URL'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Bookmark name/label"},
+                    "url": {"type": "string", "description": "URL or site name to bookmark"}
+                },
+                "required": ["name", "url"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_bookmark",
+            "description": "Open a previously saved bookmark by name.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Bookmark name to open"}
+                },
+                "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_bookmarks",
+            "description": "Show all saved bookmarks.",
+            "parameters": {"type": "object", "properties": {}}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_bookmark",
+            "description": "Delete a saved bookmark by name.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Bookmark name to delete"}
+                },
+                "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_history",
+            "description": "Show or manage DODO browser history. Actions: show (list recent sites), open_last (reopen last visited site), clear (clear history).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["show", "open_last", "clear"], "description": "What to do with history"},
+                    "limit": {"type": "integer", "description": "Number of entries to show (default 10)"}
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "translate_text",
+            "description": "Open Google Translate with pre-filled text. Use when user says 'translate X to Y language'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "Text to translate"},
+                    "target_language": {"type": "string", "description": "Target language name (e.g., hindi, spanish, french, japanese)"}
+                },
+                "required": ["text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_maps",
+            "description": "Open Google Maps for a location, or get directions between two places.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location": {"type": "string", "description": "Destination location or place name"},
+                    "from_location": {"type": "string", "description": "Starting point for directions (optional)"}
+                },
+                "required": ["location"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_downloads",
+            "description": "Open the Windows Downloads folder in Explorer.",
+            "parameters": {"type": "object", "properties": {}}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_info",
+            "description": "List all installed browsers on this system and show which one is the default.",
+            "parameters": {"type": "object", "properties": {}}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "take_screenshot",
+
             "description": "Capture the user's screen or active window with audio feedback, automatic clipboard copying, and optional AI vision analysis.",
             "parameters": {
                 "type": "object",
@@ -832,23 +975,10 @@ def _execute_tool(name: str, args: dict) -> str:
 
         elif name == "open_website":
             import skills.browser_control as bc
-            SITE_MAP = {
-                "youtube": "https://youtube.com", "google": "https://google.com",
-                "github": "https://github.com", "gmail": "https://mail.google.com",
-                "reddit": "https://reddit.com", "twitter": "https://twitter.com",
-                "x": "https://x.com", "instagram": "https://instagram.com",
-                "whatsapp": "https://web.whatsapp.com", "linkedin": "https://linkedin.com",
-                "spotify": "https://open.spotify.com", "netflix": "https://netflix.com",
-                "amazon": "https://amazon.in", "flipkart": "https://flipkart.com",
-                "facebook": "https://facebook.com", "chatgpt": "https://chat.openai.com",
-                "stackoverflow": "https://stackoverflow.com",
-            }
             url = args["url"]
-            url = SITE_MAP.get(url.lower(), url)
-            if not url.startswith("http"):
-                url = "https://" + url
-            bc.open_url(url)
-            return f"Opened {url}"
+            browser = args.get("browser")
+            incognito = args.get("incognito", False)
+            return bc.smart_open(url, incognito=incognito, browser=browser)
 
         elif name == "play_music":
             import skills.music_player as mp
@@ -882,6 +1012,57 @@ def _execute_tool(name: str, args: dict) -> str:
             import skills.browser_control as bc
             bc.youtube_search(args["query"])
             return f"Searching YouTube for: {args['query']}"
+
+        elif name == "web_search_engine":
+            import skills.browser_control as bc
+            engine = args.get("engine", "google")
+            return bc.search(args["query"], engine=engine)
+
+        elif name == "open_incognito":
+            import skills.browser_control as bc
+            return bc.open_incognito(args["url"], browser=args.get("browser"))
+
+        elif name == "add_bookmark":
+            import skills.browser_control as bc
+            return bc.add_bookmark(args["name"], args["url"])
+
+        elif name == "open_bookmark":
+            import skills.browser_control as bc
+            return bc.open_bookmark(args["name"])
+
+        elif name == "list_bookmarks":
+            import skills.browser_control as bc
+            return bc.list_bookmarks()
+
+        elif name == "delete_bookmark":
+            import skills.browser_control as bc
+            return bc.delete_bookmark(args["name"])
+
+        elif name == "browser_history":
+            import skills.browser_control as bc
+            action = args.get("action", "show")
+            if action == "show":
+                return bc.get_history(int(args.get("limit", 10)))
+            elif action == "open_last":
+                return bc.open_last_site()
+            elif action == "clear":
+                return bc.clear_history()
+
+        elif name == "translate_text":
+            import skills.browser_control as bc
+            return bc.translate(args["text"], args.get("target_language", "en"))
+
+        elif name == "open_maps":
+            import skills.browser_control as bc
+            return bc.open_maps(args["location"], args.get("from_location"))
+
+        elif name == "open_downloads":
+            import skills.browser_control as bc
+            return bc.open_downloads()
+
+        elif name == "browser_info":
+            import skills.browser_control as bc
+            return bc.browser_info()
 
         elif name == "take_screenshot":
             import skills.screenshot_engine as se

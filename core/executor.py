@@ -106,8 +106,7 @@ def execute(result: dict, confirm_callback=None) -> str:
             # ── Internet actions ─────────────────────────────────────────────
             elif step_type == "internet_action":
                 if action == "open_site":
-                    browser.open_url(value)
-                    responses.append(f"Opening {value}.")
+                    responses.append(browser.smart_open(value))
 
                 elif action == "google_search":
                     browser.google_search(value)
@@ -116,6 +115,38 @@ def execute(result: dict, confirm_callback=None) -> str:
                 elif action == "youtube_play":
                     browser.youtube_search(value)
                     responses.append(f"Playing '{value}' on YouTube.")
+
+            # ── Browser (smart open, bookmarks, history, translate, maps) ────────
+            elif step_type == "browser":
+                import skills.browser_control as bc
+                if action == "open_incognito":
+                    responses.append(bc.open_incognito(value))
+                elif action == "search_engine":
+                    engine = step.get("engine", "google")
+                    responses.append(bc.search(value, engine=engine))
+                elif action == "add_bookmark":
+                    responses.append(bc.add_bookmark(step.get("name", "bookmark"), value))
+                elif action == "open_bookmark":
+                    responses.append(bc.open_bookmark(value or ""))
+                elif action == "list_bookmarks":
+                    responses.append(bc.list_bookmarks())
+                elif action == "delete_bookmark":
+                    responses.append(bc.delete_bookmark(value or ""))
+                elif action == "browser_history":
+                    if value == "clear":
+                        responses.append(bc.clear_history())
+                    elif value == "open_last":
+                        responses.append(bc.open_last_site())
+                    else:
+                        responses.append(bc.get_history())
+                elif action == "translate":
+                    lang = step.get("value", "english")
+                    text = step.get("text", "")
+                    responses.append(bc.translate(text, lang))
+                elif action == "maps":
+                    responses.append(bc.open_maps(value))
+                elif action == "open_downloads":
+                    responses.append(bc.open_downloads())
 
             # ── Music / Queue ─────────────────────────────────────────────────
             elif step_type == "music":
