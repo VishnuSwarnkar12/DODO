@@ -21,7 +21,7 @@ if sys.platform == "win32":
         pass
 
 from core.voice    import VoiceEngine
-from core.agent   import process as agent_process
+from core.router   import route as agent_process   # Fast router: local → executor, chat → LLM
 from core import speech
 from core.memory   import load_config, update_session, get_user_name
 
@@ -56,7 +56,7 @@ def on_voice_status(state: str):
 # ── Agent loop (runs in background thread) ────────────────────────────────────
 
 def processing_loop():
-    """Picks commands from queue, sends to agent, speaks response."""
+    """Picks commands from queue, sends to router, speaks response."""
     while True:
         try:
             cmd = command_queue.get(timeout=1)
@@ -67,17 +67,18 @@ def processing_loop():
         ui_chat(cmd, sender="user")
         ui_log("system_command", f"Command: {cmd}")
 
-        # Let the agent handle everything
+        # Route to fastest handler (local executor or LLM)
         try:
             response = agent_process(cmd)
         except Exception as e:
             response = f"Something went wrong: {str(e)[:100]}"
 
-        # Update UI
+        # Update UI immediately — don't wait for TTS to finish
         ui_chat(response, sender="dodo")
-        ui_log("agent", f"→ {response[:60]}")
+        ui_log("agent", f"-> {response[:60]}")
 
-        # Speak
+        # Speak in background — UI is already updated, so user sees the text
+        # while the voice is speaking
         ui_status("SPEAKING")
         speech.speak(response, on_done=lambda: ui_status("IDLE"))
 

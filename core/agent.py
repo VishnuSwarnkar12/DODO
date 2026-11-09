@@ -13,6 +13,26 @@ from core.memory import (
     save_chat_history, load_chat_history, save_fact, log_command
 )
 
+# Config cache -- avoids reading config.json from disk on every LLM call
+_cfg_cache: dict = {}
+_cfg_mtime: float = 0.0
+
+
+def _cached_load_config() -> dict:
+    """Return config dict, re-reading from disk only when the file changes on disk."""
+    global _cfg_cache, _cfg_mtime
+    cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.json")
+    try:
+        mtime = os.path.getmtime(cfg_path)
+        if mtime != _cfg_mtime:
+            _cfg_cache = load_config()
+            _cfg_mtime = mtime
+    except OSError:
+        if not _cfg_cache:
+            _cfg_cache = load_config()
+    return _cfg_cache
+
+
 # ── Tool definitions (sent to Groq so it knows what it can do) ───────────────
 # Keep descriptions SHORT to minimize token usage.
 
@@ -945,6 +965,18 @@ TOOLS = [
     },
 ]
 
+
+# ── TOOLS_CORE: minimal tool set sent for general chat ────────────────────────
+# Sending all 66 tools costs tokens. For simple/chat queries, we only send these.
+# The full TOOLS list is sent only when the router explicitly needs tool access.
+_CORE_TOOL_NAMES = {
+    "web_search", "get_wikipedia", "get_weather", "get_time_date",
+    "set_reminder", "list_reminders", "volume_control", "open_app",
+    "take_screenshot", "system_action", "run_command", "remember_fact",
+    "search_news", "play_music", "open_website",
+}
+TOOLS_CORE = [t for t in TOOLS if t["function"]["name"] in _CORE_TOOL_NAMES]
+
 # ── System prompt ─────────────────────────────────────────────────────────────
 
 _SYSTEM_PROMPT = """You are DODO, a powerful AI desktop assistant for Windows. User: {name}.
@@ -1531,13 +1563,13 @@ def _get_client() -> OpenAI:
 
 
 def _get_model() -> str:
-    cfg = load_config()
+    cfg = _cached_load_config()
     provider = cfg.get('ai_provider', 'groq')
     if provider == 'nvidia':
         return cfg.get('nvidia_model', 'meta/llama-3.2-11b-vision-instruct')
     if provider == 'gemini':
-        return cfg.get('gemini_model', 'gemini-3.8-flash')
-    return cfg.get('groq_model', 'openai/gpt-oss-120b')
+        return cfg.get('gemini_model', 'gemini-2.0-flash')
+    return cfg.get('groq_model', 'llama-3.1-8b-instant')
 
 def reset_client():
     """Reset the API client so it reconnects with new config on next call."""
@@ -1547,9 +1579,9 @@ def reset_client():
 
 # ── Main agent entry point ────────────────────────────────────────────────────
 
-_MAX_TOOL_ROUNDS = 6   # max LLM→tool loops per user turn
-_MAX_HISTORY     = 20  # messages kept in context
-_MAX_RETRIES     = 3   # retries on transient API errors (503)
+_MAX_TOOL_ROUNDS = 2   # max LLM->tool loops per user turn
+_MAX_HISTORY     = 6   # last 6 messages only — keeps payload tiny
+_MAX_RETRIES     = 2   # retries on transient API errors
 
 
 def _get_fallback_client_and_model():
@@ -1560,7 +1592,7 @@ def _get_fallback_client_and_model():
         if not key:
             return None, None
         base_url = cfg.get("openai_base_url", "https://api.groq.com/openai/v1")
-        model = cfg.get("groq_model", "openai/gpt-oss-120b")
+        model = cfg.get("groq_model", "llama-3.1-8b-instant")
         return OpenAI(api_key=key, base_url=base_url), model
     except Exception:
         return None, None
@@ -1582,7 +1614,7 @@ def _llm_call(client, **kwargs):
                 raise
             # 503 = overloaded, 429 = transient rate limit → retry with backoff
             if code in (503, 429):
-                delay = 2 ** attempt  # 1s, 2s, 4s
+                delay = 1  # flat 1s retry (was exponential 1s,2s,4s)
                 _time.sleep(delay)
                 continue
             # 400 = bad request, 404 = model not found → don't retry
@@ -1626,8 +1658,24 @@ def process(user_message: str) -> str:
         save_chat_history(_history)
         return fallback
 
-    # Build messages for the API call
-    messages = [{"role": "system", "content": system}] + _history
+    # Build messages for the API call.
+    # SPEED OPTIMISATION: only include chat history for conversational turns.
+    # Tool-heavy commands get no history — it bloats the payload for no benefit.
+    _is_chat_turn = not any(sig in user_message.lower() for sig in [
+        "search", "open", "play", "volume", "screenshot", "reminder",
+        "weather", "news", "find", "create", "run", "email", "wifi",
+        "bluetooth", "battery", "lock", "restart", "translate",
+    ])
+    if _is_chat_turn:
+        messages = [{"role": "system", "content": system}] + _history
+        active_tools = TOOLS_CORE   # 15 tools instead of 66
+    else:
+        messages = [{"role": "system", "content": system},
+                    {"role": "user",   "content": user_message}]
+        active_tools = TOOLS        # full 66 tools for action commands
+        # Remove the last user message we just added since we rebuilt it
+        if _history and _history[-1].get("role") == "user":
+            pass  # already in messages above
 
     try:
         # Track executed tool calls this turn to prevent duplicates

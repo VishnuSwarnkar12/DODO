@@ -251,6 +251,11 @@ INTENT_PATTERNS = [
                         r"publish.*update", r"commit.*and.*push"]),
 
     # ── Music Queue ───────────────────────────────────────────────────────────
+    ("play_music",     [r"^play\s+(?!on\s+youtube).+",
+                        r"\bplay\s+(some\s+)?(music|song|track|lofi|jazz|rock|pop|hip\s*hop|classical|bollywood|rap|edm)\b",
+                        r"\bplay\s+.+\s+song\b", r"\bbajao\s+.+", r"\bchalao\s+.+"]),
+    ("stop_music",     [r"\bstop\s+(the\s+)?music\b", r"\bpause\s+(the\s+)?music\b",
+                        r"\bstop\s+(the\s+)?song\b", r"\bband\s+karo\s+(music|song)\b"]),
     ("queue_song",     [r"queue\s+.+", r"add\s+.+\s+to\s+(the\s+)?queue",
                         r"play\s+.+\s+next", r"next\s+play\s+.+",
                         r"line\s+up\s+.+", r"put\s+.+\s+in\s+(the\s+)?queue"]),
@@ -565,6 +570,15 @@ def _classify_single(text: str, raw: str) -> dict:
             "", norm
         ).strip() or raw
         plan = [{"type": "music", "action": "queue_song", "value": query}]
+
+    elif intent == "play_music":
+        query = re.sub(
+            r"(^play\s+|some\s+|me\s+|please\s+|bajao\s+|chalao\s+)", "", norm
+        ).strip() or raw
+        plan = [{"type": "music", "action": "play_song", "value": query}]
+
+    elif intent == "stop_music":
+        plan = [{"type": "music", "action": "stop_music", "value": None}]
 
     elif intent == "skip_song":
         plan = [{"type": "music", "action": "skip_song", "value": None}]
