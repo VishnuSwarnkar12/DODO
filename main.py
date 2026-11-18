@@ -20,9 +20,6 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from core.voice    import VoiceEngine
-from core.router   import route as agent_process   # Fast router: local → executor, chat → LLM
-from core import speech
 from core.memory   import load_config, update_session, get_user_name
 
 # ── Queues ─────────────────────────────────────────────────────────────────────
@@ -57,6 +54,8 @@ def on_voice_status(state: str):
 
 def processing_loop():
     """Picks commands from queue, sends to router, speaks response."""
+    from core.router import route as agent_process
+    from core import speech
     while True:
         try:
             cmd = command_queue.get(timeout=1)
@@ -93,6 +92,7 @@ def reminder_loop():
         winsound = None
 
     from skills.reminders import check_due_reminders, check_missed_reminders
+    from core import speech
 
     # Check for reminders missed while DODO was shut down
     try:
@@ -142,6 +142,7 @@ def reminder_loop():
 # ── Startup greeting ───────────────────────────────────────────────────────────
 
 def greet():
+    from core import speech
     cfg  = load_config()
     if not cfg.get("startup_greeting", True):
         return
@@ -174,11 +175,19 @@ def preflight_check() -> bool:
     if not os.path.exists(CONFIG_PATH):
         issues.append("config.json not found.")
 
-    # 2. API key set?
+    # 2. API key set for active online provider?
     cfg = load_config()
-    key = cfg.get("groq_api_key", "")
-    if not key or key.startswith("YOUR_") or len(key) < 20:
-        issues.append("Groq API key is missing or not set in config.json.")
+    if cfg.get("online_mode", True):
+        provider = str(cfg.get("ai_provider", "groq")).lower()
+        key_map = {
+            "groq": "groq_api_key",
+            "gemini": "gemini_api_key",
+            "nvidia": "nvidia_api_key",
+        }
+        key_name = key_map.get(provider, "groq_api_key")
+        key = cfg.get(key_name, "")
+        if not key or key.startswith("YOUR_") or len(key) < 15:
+            issues.append(f"{provider.capitalize()} API key ({key_name}) is missing or not set in config.json.")
 
     # 3. memory/ folder writable?
     try:
@@ -219,7 +228,8 @@ def main():
         from ui.launch_ui import main as launch_qml_ui
         return launch_qml_ui()
 
-    # Import here to avoid circular issues at module level
+    # Import here to avoid circular issues and slow Whisper/torch load in QML mode
+    from core.voice import VoiceEngine
     from ui.control_panel import ControlPanel
 
     # Create voice engine

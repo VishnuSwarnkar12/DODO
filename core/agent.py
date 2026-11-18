@@ -1541,40 +1541,34 @@ def _ensure_init():
 
 
 def _get_client() -> OpenAI:
-    global _client
-    if _client is None:
-        cfg = load_config()
-        provider = cfg.get('ai_provider', 'groq')
-        if provider == 'nvidia':
-            key = cfg.get('nvidia_api_key', '')
-            base_url = 'https://integrate.api.nvidia.com/v1'
-        elif provider == 'gemini':
-            key = cfg.get('gemini_api_key', '')
-            base_url = 'https://generativelanguage.googleapis.com/v1beta/openai/'
-        else:
-            key = cfg.get('groq_api_key', '')
-            base_url = cfg.get('openai_base_url', 'https://api.groq.com/openai/v1')
-        if base_url and not base_url.startswith('https://'):
-            base_url = base_url.replace('http://', 'https://', 1)
-        if not key:
-            raise RuntimeError(f'{provider.capitalize()} API key missing from config.json.')
-        _client = OpenAI(api_key=key, base_url=base_url)
-    return _client
+    """Get client via model_manager (auto-discovers, auto-switches on failure)."""
+    from core.model_manager import get_client_and_model
+    client, _ = get_client_and_model()
+    if client is None:
+        raise RuntimeError("No working AI model found. Check API keys in config.json.")
+    return client
 
 
 def _get_model() -> str:
-    cfg = _cached_load_config()
-    provider = cfg.get('ai_provider', 'groq')
-    if provider == 'nvidia':
-        return cfg.get('nvidia_model', 'meta/llama-3.2-11b-vision-instruct')
-    if provider == 'gemini':
-        return cfg.get('gemini_model', 'gemini-2.0-flash')
-    return cfg.get('groq_model', 'llama-3.1-8b-instant')
+    """Get active model via model_manager (auto-discovers, never returns a dead model)."""
+    from core.model_manager import get_client_and_model
+    _, model = get_client_and_model()
+    if not model:
+        raise RuntimeError("No working AI model found. Check API keys in config.json.")
+    return model
+
 
 def reset_client():
-    """Reset the API client so it reconnects with new config on next call."""
+    """Reset the API client so model_manager re-discovers on next call."""
     global _client
     _client = None
+    # Also reset model_manager's cache
+    try:
+        import core.model_manager as mm
+        mm._active_client = None
+        mm._active_model = ""
+    except Exception:
+        pass
 
 
 # ── Main agent entry point ────────────────────────────────────────────────────
@@ -1584,18 +1578,16 @@ _MAX_HISTORY     = 6   # last 6 messages only — keeps payload tiny
 _MAX_RETRIES     = 2   # retries on transient API errors
 
 
-def _get_fallback_client_and_model():
-    """Fallback to Groq if the current provider fails (quota/rate limit/validation)."""
+def _get_fallback_client_and_model(current_model: str = "", error: str = ""):
+    """Use model_manager to find next working model when the current one fails."""
     try:
-        cfg = load_config()
-        key = cfg.get("groq_api_key", "")
-        if not key:
-            return None, None
-        base_url = cfg.get("openai_base_url", "https://api.groq.com/openai/v1")
-        model = cfg.get("groq_model", "llama-3.1-8b-instant")
-        return OpenAI(api_key=key, base_url=base_url), model
+        from core.model_manager import on_model_failure
+        client, model = on_model_failure(current_model, error)
+        if client and model:
+            return client, model
     except Exception:
-        return None, None
+        pass
+    return None, None
 
 
 def _llm_call(client, **kwargs):
@@ -1631,8 +1623,10 @@ def process(user_message: str) -> str:
     global _history
     _ensure_init()
 
-    client = _get_client()
-    model = _get_model()
+    from core.model_manager import get_client_and_model as _gcam
+    client, model = _gcam()
+    if not client or not model:
+        return "⚠️ No working AI model found. Check your API keys in Settings."
     name = get_user_name()
     facts = get_facts_string()
     system = _SYSTEM_PROMPT.format(name=name, facts=facts)
@@ -1695,9 +1689,9 @@ def process(user_message: str) -> str:
                 )
             except Exception as call_err:
                 err_str = str(call_err)
-                # Auto-fallback to Groq if primary provider hits quota (429) or schema/thought issue (400)
-                if any(k in err_str for k in ["429", "RESOURCE_EXHAUSTED", "thought_signature", "Tool call validation", "quota"]):
-                    fb_client, fb_model = _get_fallback_client_and_model()
+                # Auto-fallback: mark model dead, get next working one
+                if any(k in err_str for k in ["429", "400", "404", "410", "RESOURCE_EXHAUSTED", "thought_signature", "Tool call validation", "quota", "not found", "gone", "no longer"]):
+                    fb_client, fb_model = _get_fallback_client_and_model(model, err_str)
                     if fb_client and (client != fb_client or model != fb_model):
                         client = fb_client
                         model = fb_model
@@ -1780,9 +1774,9 @@ def process(user_message: str) -> str:
         err = str(e)
 
         # Final resilient attempt: if error occurred, try fallback once directly
-        if any(k in err for k in ["429", "RESOURCE_EXHAUSTED", "thought_signature", "Tool call validation", "quota"]):
+        if any(k in err for k in ["429", "400", "404", "410", "RESOURCE_EXHAUSTED", "thought_signature", "Tool call validation", "quota", "not found", "gone", "no longer"]):
             try:
-                fb_client, fb_model = _get_fallback_client_and_model()
+                fb_client, fb_model = _get_fallback_client_and_model(model, err)
                 if fb_client:
                     fb_res = fb_client.chat.completions.create(
                         model=fb_model,
